@@ -1,0 +1,14 @@
+{
+  "name": "costudy-functions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CoStudy server-side logic. Phase 1: the coalition formation engine.",
+  "main": "src/coalitionEngine.js",
+  "scripts": {
+    "test": "jest",
+    "bench": "node bench/coalitionEngine.bench.js"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  }
+}
