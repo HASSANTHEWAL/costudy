@@ -51,8 +51,8 @@ firestore-debug.log
 ui-debug.log
 .firebase/
 
-# Firebase client config — contains project identifiers, added by
-# `flutterfire configure`. Not secret, but generated per environment.
-/android/app/google-services.json
-/ios/Runner/GoogleService-Info.plist
-/lib/firebase_options.dart
+# Firebase client config (google-services.json, firebase_options.dart) is
+# deliberately COMMITTED, not ignored. The API key in it is a public
+# identifier, not a secret — Firebase security comes from Auth and Firestore
+# rules. Committing it means a fresh clone builds without a manual console
+# download, which matters with three people on the team.
