@@ -2,13 +2,21 @@
   "name": "costudy-functions",
   "version": "0.1.0",
   "private": true,
-  "description": "CoStudy server-side logic. Phase 1: the coalition formation engine.",
-  "main": "src/coalitionEngine.js",
+  "description": "CoStudy server-side logic: coalition formation engine and auth blocking functions.",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
   "scripts": {
     "test": "jest",
-    "bench": "node bench/coalitionEngine.bench.js"
+    "bench": "node bench/coalitionEngine.bench.js",
+    "serve": "firebase emulators:start --only functions,auth"
   },
   "devDependencies": {
     "jest": "^30.2.0"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.2.0",
+    "firebase-functions": "^7.3.2"
   }
 }
