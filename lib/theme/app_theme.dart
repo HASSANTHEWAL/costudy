@@ -14,6 +14,9 @@ abstract final class AppColors {
   /// Not used on these screens — listed so nobody reaches for it by accident.
   static const yellow = Color(0xFFFFD23F);
 
+  static const lavender = Color(0xFFC4B5FD);
+  static const lavenderLight = Color(0xFFF0EBFF);
+
   static const offWhite = Color(0xFFFAF8F3);
   static const white = Color(0xFFFFFFFF);
   static const charcoal = Color(0xFF1A1A2E);

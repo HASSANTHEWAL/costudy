@@ -1,0 +1,129 @@
+rules_version = '2';
+
+// CoStudy Firestore security rules
+//
+// FR-03 is the requirement these rules exist to satisfy: "Availability windows
+// are invisible to other users before a coalition forms." That is not a UI
+// concern — if another student can read the intents collection, the privacy
+// guarantee the whole product rests on is gone regardless of what the app
+// shows. These rules are the enforcement point.
+//
+// The assurance-contract mechanism (proposal B.3) only works because nobody
+// can observe who else is waiting. A readable intents collection would let a
+// user see exactly that, reintroducing the social risk CoStudy removes.
+//
+// Cloud Functions use the Admin SDK, which bypasses rules entirely. That is
+// what lets the coalition engine scan every active intent (F.6) while no
+// client can read more than its own.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // FR-01 / NFR-03 — only verified students may write.
+    //
+    // Checked against the token's own email and email_verified rather than a
+    // custom claim, so the rules hold even if the blocking functions are not
+    // deployed. Belt and braces: the blocking function refuses non-campus
+    // accounts at creation, and these rules refuse them again at write time.
+    //
+    // email_verified is the load-bearing half. With email-link sign-in it is
+    // set by Firebase only after the student opens the link, which is the
+    // proof of mailbox ownership. Without it, anyone who could create an
+    // account with a guessed campus address could write intents.
+    function isCampusVerified() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.auth.token.email.lower().matches('^[^@]+@students\\.uii\\.ac\\.id$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Shape and range checks on an intent the client is trying to write.
+    //
+    // hasOnly() matters as much as hasAll(): without it a client could attach
+    // arbitrary extra fields to its own document, and anything later reading
+    // those fields would be trusting client-controlled data.
+    function isValidIntent(data) {
+      return data.keys().hasAll([
+               'userId', 'startTime', 'endTime',
+               'lat', 'lng', 'radiusM', 'atmosphere', 'status', 'createdAt'
+             ])
+        && data.keys().hasOnly([
+             'userId', 'startTime', 'endTime',
+             'lat', 'lng', 'radiusM', 'atmosphere', 'status', 'createdAt'
+           ])
+        && data.userId is string
+        // Epoch milliseconds, matching the coalition engine's intent shape.
+        && data.startTime is int
+        && data.endTime is int
+        && data.endTime > data.startTime
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && data.radiusM is int && data.radiusM > 0 && data.radiusM <= 5000
+        && data.atmosphere in ['quiet', 'discussion', 'any']
+        // A client may only ever open an intent. Advancing it to matched or
+        // completed is the engine's job, via the Admin SDK.
+        && data.status == 'active'
+        && data.createdAt is timestamp;
+    }
+
+    match /intents/{intentId} {
+
+      // Single-document read: only your own.
+      allow get: if isOwner(resource.data.userId);
+
+      // Query/list: also only your own.
+      //
+      // For queries Firestore evaluates this against the QUERY, not the
+      // returned documents — it must be able to prove from the query's own
+      // filters that every possible result satisfies the rule. So an
+      // unfiltered list of /intents is rejected outright, and only a query
+      // constrained with where('userId', isEqualTo: <own uid>) is allowed.
+      // A student cannot enumerate the collection even to count it.
+      allow list: if isOwner(resource.data.userId);
+
+      allow create: if isCampusVerified()
+                    && isOwner(request.resource.data.userId)
+                    && isValidIntent(request.resource.data);
+
+      // Cancelling is the only edit a client needs (proposal F.7 status
+      // 'cancelled'). Everything else about an intent is immutable once
+      // written — in particular the owner, so a document cannot be handed to
+      // another account, and the time and place, so an intent cannot be
+      // rewritten after the engine has already considered it.
+      allow update: if isCampusVerified()
+                    && isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.startTime == resource.data.startTime
+                    && request.resource.data.endTime == resource.data.endTime
+                    && request.resource.data.lat == resource.data.lat
+                    && request.resource.data.lng == resource.data.lng
+                    && request.resource.data.radiusM == resource.data.radiusM
+                    && request.resource.data.atmosphere == resource.data.atmosphere
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && resource.data.status == 'active'
+                    && request.resource.data.status == 'cancelled';
+
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // Everything else is closed.
+    //
+    // Firestore already denies by default, and rules are OR-ed so this cannot
+    // override an allow above — it is here to state the posture explicitly.
+    // Note it also means collection-group queries over `intents` are denied:
+    // those require a `match /{path=**}/intents/{id}` rule, which deliberately
+    // does not exist. There is no path by which one student reaches another's
+    // intents.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

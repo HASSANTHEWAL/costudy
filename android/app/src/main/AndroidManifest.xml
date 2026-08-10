@@ -1,4 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- FR-02 — a travel radius is meaningless without a point to measure it
+         from. Coarse would very nearly do, since matching works at hundreds of
+         metres, but Android grants coarse-only as a downgrade of fine, so both
+         are declared and LocationAccuracy.medium is requested at runtime.
+
+         NFR-04: this position is never broadcast. It is written to the
+         student's own private intent document, used server-side to test radius
+         overlap, and a precise location surfaces only once a coalition is
+         active and all members verified. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="costudy"
         android:name="${applicationName}"

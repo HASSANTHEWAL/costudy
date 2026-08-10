@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_service.dart';
 import '../theme/app_theme.dart';
+import 'register_intent_screen.dart';
 
 /// PLACEHOLDER — not the Home screen.
 ///
@@ -71,6 +72,14 @@ class SignedInStubScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 24),
+              // The one real entry point so far (FR-02). Still not the Home
+              // screen from the design — no greeting, no active-intent card,
+              // no bottom nav.
+              FilledButton(
+                onPressed: () => _openRegisterIntent(context),
+                child: const Text('Saya ingin belajar'),
+              ),
               const Spacer(),
               TextButton(
                 onPressed: authService.signOut,
@@ -82,6 +91,24 @@ class SignedInStubScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _openRegisterIntent(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final registered = await Navigator.of(context).push<bool>(
+    MaterialPageRoute(
+      builder: (_) => RegisterIntentScreen(
+        userId: FirebaseAuth.instance.currentUser!.uid,
+      ),
+    ),
+  );
+
+  if (registered != true) return;
+  // Placeholder acknowledgement. The design's Waiting screen — pulsing rings,
+  // the student's own window shown back to them — is a later change.
+  messenger.showSnackBar(
+    const SnackBar(content: Text('Niatmu tersimpan. Kami mulai mencari.')),
+  );
 }
 
 class _VerifiedBadge extends StatelessWidget {
