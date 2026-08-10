@@ -6,8 +6,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'auth/auth_service.dart';
+import 'screens/app_shell.dart';
 import 'screens/email_entry_screen.dart';
-import 'screens/signed_in_stub_screen.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -127,7 +127,7 @@ class AuthGate extends StatelessWidget {
         if (user == null) {
           return EmailEntryScreen(authService: authService);
         }
-        return SignedInStubScreen(user: user, authService: authService);
+        return AppShell(user: user, authService: authService);
       },
     );
   }

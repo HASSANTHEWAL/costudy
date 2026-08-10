@@ -4,15 +4,54 @@ import '../intent/intent_repository.dart';
 import '../intent/location_service.dart';
 import '../intent/study_intent.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common.dart';
 
-/// Screen 6 of the design — register an availability window (FR-02).
+/// What a successful registration hands back to the caller, so Home and the
+/// Waiting screen can show the student their own window without re-reading
+/// Firestore.
+class RegisteredIntentSummary {
+  const RegisteredIntentSummary({
+    required this.intentId,
+    required this.startTime,
+    required this.endTime,
+    required this.radiusM,
+    required this.atmosphere,
+  });
+
+  final String intentId;
+  final DateTime startTime;
+  final DateTime endTime;
+  final int radiusM;
+  final Atmosphere atmosphere;
+
+  static String _hhmm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  static String formatRadius(int metres) =>
+      metres >= 1000 ? '${metres ~/ 1000}km' : '${metres}m';
+
+  static String atmosphereEmoji(Atmosphere a) => switch (a) {
+        Atmosphere.quiet => '🔇',
+        Atmosphere.discussion => '💬',
+        Atmosphere.any => '✨',
+      };
+
+  /// The three chips shown on Home and Waiting.
+  List<String> get tags => [
+        '⏰ ${_hhmm(startTime)}–${_hhmm(endTime)}',
+        '📍 Dalam ${formatRadius(radiusM)}',
+        '${atmosphereEmoji(atmosphere)} ${atmosphere.label}',
+      ];
+}
+
+/// Screen 6 — Daftarkan Niat (FR-02).
 ///
-/// The core input screen. Its whole job is to collect a time range, a travel
-/// radius and an atmosphere, and store them PRIVATELY. There is deliberately
-/// nothing here about other students: no count of who else is waiting, no
-/// suggestions, no map of people. Showing any of that would reintroduce the
-/// first-initiative risk the assurance contract exists to remove (B.3), and it
-/// is why firestore.rules forbids reading anyone else's intents at all.
+/// The core input screen. Collects a time range, a travel radius and an
+/// atmosphere, and stores them PRIVATELY. Deliberately nothing about other
+/// students: no count of who else is waiting, no suggestions, no map of
+/// people. Any of those would reintroduce the first-initiative risk the
+/// assurance contract exists to remove (B.3), which is also why
+/// firestore.rules forbids reading anyone else's intents at all.
 class RegisterIntentScreen extends StatefulWidget {
   const RegisterIntentScreen({
     super.key,
@@ -133,7 +172,7 @@ class _RegisterIntentScreenState extends State<RegisterIntentScreen> {
     });
 
     try {
-      await _repository.register(
+      final id = await _repository.register(
         StudyIntent(
           userId: widget.userId,
           startTime: _startAt!,
@@ -145,7 +184,15 @@ class _RegisterIntentScreenState extends State<RegisterIntentScreen> {
         ),
       );
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(
+        RegisteredIntentSummary(
+          intentId: id,
+          startTime: _startAt!,
+          endTime: _endAt!,
+          radiusM: _radiusM,
+          atmosphere: _atmosphere,
+        ),
+      );
     } on IntentFailure catch (failure) {
       if (!mounted) return;
       setState(() => _error = failure.message);
@@ -156,149 +203,225 @@ class _RegisterIntentScreenState extends State<RegisterIntentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: AppColors.charcoal,
-        title: const Text('Saya ingin belajar'),
-      ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Kapan?', style: textTheme.headlineMedium),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _TimeField(
-                      label: 'Mulai',
-                      value: _start,
-                      onTap: () => _pickTime(isStart: true),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 26),
+              child: ScreenHeader(
+                title: 'Daftarkan Niat',
+                subtitle: 'Kapan ingin belajar?',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionLabel(
+                      color: AppColors.blue,
+                      label: 'Jendela waktu',
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _TimeField(
-                      label: 'Selesai',
-                      value: _end,
-                      onTap: () => _pickTime(isStart: false),
+                    _TimeCard(
+                      start: _start,
+                      end: _end,
+                      onPickStart: () => _pickTime(isStart: true),
+                      onPickEnd: () => _pickTime(isStart: false),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
+                    const SizedBox(height: 22),
 
-              Text('Seberapa jauh kamu mau jalan?',
-                  style: textTheme.headlineMedium),
-              const SizedBox(height: 8),
-              _RadiusSlider(
-                stops: _radiusStops,
-                value: _radiusM,
-                onChanged: (value) => setState(() => _radiusM = value),
-              ),
-              const SizedBox(height: 12),
-              _LocationRow(
-                lat: _lat,
-                lng: _lng,
-                busy: _locating,
-                onPressed: _useCurrentLocation,
-              ),
-              const SizedBox(height: 32),
+                    const SectionLabel(
+                      color: AppColors.lavender,
+                      label: 'Radius pencarian',
+                    ),
+                    _RadiusCard(
+                      stops: _radiusStops,
+                      value: _radiusM,
+                      onChanged: (v) => setState(() => _radiusM = v),
+                    ),
+                    const SizedBox(height: 10),
+                    _LocationButton(
+                      hasFix: _lat != null && _lng != null,
+                      busy: _locating,
+                      onTap: _useCurrentLocation,
+                    ),
+                    const SizedBox(height: 22),
 
-              Text('Suasana belajar', style: textTheme.headlineMedium),
-              const SizedBox(height: 12),
-              for (final option in Atmosphere.values) ...[
-                _AtmosphereCard(
-                  atmosphere: option,
-                  selected: _atmosphere == option,
-                  onTap: () => setState(() => _atmosphere = option),
+                    const SectionLabel(
+                      color: AppColors.green,
+                      label: 'Suasana belajar',
+                    ),
+                    for (final option in Atmosphere.values) ...[
+                      _AtmosphereCard(
+                        atmosphere: option,
+                        selected: _atmosphere == option,
+                        onTap: () => setState(() => _atmosphere = option),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    const SizedBox(height: 12),
+
+                    const PrivacyNote(
+                      text: 'Niatmu tidak terlihat oleh siapa pun sampai '
+                          'sesi terbentuk.',
+                    ),
+
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 16, color: AppColors.red),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              _error!,
+                              style: display(
+                                size: 13,
+                                weight: FontWeight.w500,
+                                color: AppColors.red,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: _saving ? null : _submit,
+                      child: _saving
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.white,
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.podcasts_rounded, size: 18),
+                                SizedBox(width: 10),
+                                Text('Daftarkan niat'),
+                              ],
+                            ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-              ],
-
-              const SizedBox(height: 12),
-              const _PrivacyReassurance(),
-
-              if (_error != null) ...[
-                const SizedBox(height: 16),
-                Text(
-                  _error!,
-                  style: textTheme.bodyMedium?.copyWith(color: AppColors.red),
-                ),
-              ],
-
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _saving ? null : _submit,
-                child: _saving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppColors.white,
-                        ),
-                      )
-                    : const Text('Daftarkan niat'),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _TimeField extends StatelessWidget {
-  const _TimeField({
-    required this.label,
-    required this.value,
-    required this.onTap,
+class _TimeCard extends StatelessWidget {
+  const _TimeCard({
+    required this.start,
+    required this.end,
+    required this.onPickStart,
+    required this.onPickEnd,
   });
 
-  final String label;
-  final TimeOfDay? value;
-  final VoidCallback onTap;
+  final TimeOfDay? start;
+  final TimeOfDay? end;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
 
   @override
   Widget build(BuildContext context) {
-    final display = value == null
+    return Container(
+      decoration: cardDecoration(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          _TimeRow(
+            icon: Icons.schedule,
+            iconColor: AppColors.blue,
+            label: 'Mulai',
+            value: start,
+            onTap: onPickStart,
+            divider: true,
+          ),
+          _TimeRow(
+            icon: Icons.schedule,
+            iconColor: AppColors.lavender,
+            label: 'Selesai',
+            value: end,
+            onTap: onPickEnd,
+            divider: false,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeRow extends StatelessWidget {
+  const _TimeRow({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.onTap,
+    required this.divider,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final TimeOfDay? value;
+  final VoidCallback onTap;
+  final bool divider;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value == null
         ? '--:--'
         : '${value!.hour.toString().padLeft(2, '0')}:'
             '${value!.minute.toString().padLeft(2, '0')}';
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.card),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        height: 62,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: AppColors.gray),
+          border: divider
+              ? const Border(bottom: BorderSide(color: AppColors.hairline))
+              : null,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Text(
-              label,
-              style: const TextStyle(fontSize: 13, color: AppColors.grayMid),
+            Icon(icon, size: 17, color: iconColor),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: display(
+                  size: 14,
+                  weight: FontWeight.w500,
+                  color: AppColors.grayMid,
+                ),
+              ),
             ),
-            const SizedBox(height: 4),
             Text(
-              display,
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w700,
-                // Tabular figures so the two fields stay aligned as digits
-                // change — the design reserves mono for times exactly here.
-                fontFeatures: const [FontFeature.tabularFigures()],
+              text,
+              // Mono keeps the two rows' digits in the same columns as they
+              // change — the design reserves it for times exactly like this.
+              style: mono(
+                size: 18,
+                weight: FontWeight.w500,
                 color: value == null ? AppColors.grayMid : AppColors.charcoal,
               ),
             ),
@@ -309,8 +432,13 @@ class _TimeField extends StatelessWidget {
   }
 }
 
-class _RadiusSlider extends StatelessWidget {
-  const _RadiusSlider({
+/// Three discrete stops, not a continuous slider.
+///
+/// The prototype draws them as dots on a track because 500m / 1km / 2km are
+/// the only meaningful choices — a free slider would invite 1.3km, which is
+/// false precision for a constraint the engine tests against a centroid.
+class _RadiusCard extends StatelessWidget {
+  const _RadiusCard({
     required this.stops,
     required this.value,
     required this.onChanged,
@@ -320,92 +448,116 @@ class _RadiusSlider extends StatelessWidget {
   final int value;
   final ValueChanged<int> onChanged;
 
-  static String _format(int metres) =>
-      metres >= 1000 ? '${metres ~/ 1000} km' : '$metres m';
-
   @override
   Widget build(BuildContext context) {
     final index = stops.indexOf(value).clamp(0, stops.length - 1);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          _format(value),
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: AppColors.blue,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      decoration: cardDecoration(),
+      child: Column(
+        children: [
+          SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 4,
+              activeTrackColor: AppColors.blue,
+              inactiveTrackColor: AppColors.gray,
+              thumbColor: AppColors.blue,
+              overlayColor: AppColors.blueLight,
+              activeTickMarkColor: AppColors.blue,
+              inactiveTickMarkColor: AppColors.gray,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+            ),
+            child: Slider(
+              value: index.toDouble(),
+              min: 0,
+              max: (stops.length - 1).toDouble(),
+              divisions: stops.length - 1,
+              onChanged: (raw) => onChanged(stops[raw.round()]),
+            ),
           ),
-        ),
-        Slider(
-          value: index.toDouble(),
-          min: 0,
-          max: (stops.length - 1).toDouble(),
-          divisions: stops.length - 1,
-          label: _format(value),
-          activeColor: AppColors.blue,
-          onChanged: (raw) => onChanged(stops[raw.round()]),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            for (final stop in stops)
-              Text(
-                _format(stop),
-                style: const TextStyle(fontSize: 13, color: AppColors.grayMid),
-              ),
-          ],
-        ),
-      ],
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (var i = 0; i < stops.length; i++)
+                Text(
+                  RegisteredIntentSummary.formatRadius(stops[i]),
+                  style: display(
+                    size: 12,
+                    weight: i == index ? FontWeight.w700 : FontWeight.w500,
+                    color: i == index ? AppColors.blue : AppColors.grayMid,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _LocationRow extends StatelessWidget {
-  const _LocationRow({
-    required this.lat,
-    required this.lng,
+class _LocationButton extends StatelessWidget {
+  const _LocationButton({
+    required this.hasFix,
     required this.busy,
-    required this.onPressed,
+    required this.onTap,
   });
 
-  final double? lat;
-  final double? lng;
+  final bool hasFix;
   final bool busy;
-  final VoidCallback onPressed;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final hasFix = lat != null && lng != null;
-
-    return Row(
-      children: [
-        Icon(
-          hasFix ? Icons.check_circle_outline : Icons.my_location,
-          size: 20,
-          color: hasFix ? AppColors.green : AppColors.blue,
+    return InkWell(
+      onTap: busy ? null : onTap,
+      borderRadius: BorderRadius.circular(AppRadius.button),
+      child: Container(
+        height: 44,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: hasFix ? AppColors.greenLight : AppColors.blueLight,
+          borderRadius: BorderRadius.circular(AppRadius.button),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: busy
-              ? const Text('Mencari lokasi…',
-                  style: TextStyle(color: AppColors.charcoalMid))
-              : TextButton(
-                  onPressed: onPressed,
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    alignment: Alignment.centerLeft,
-                    minimumSize: const Size(0, kMinTouchTarget),
-                  ),
-                  child: Text(
-                    hasFix
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (busy)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.blue,
+                ),
+              )
+            else
+              Icon(
+                hasFix ? Icons.check_circle_outline : Icons.place_outlined,
+                size: 15,
+                color: hasFix ? AppColors.greenDeep : AppColors.blue,
+              ),
+            const SizedBox(width: 7),
+            // Flexible: the confirmed-state label is the longest string on
+            // this screen and overflows a narrow phone without it.
+            Flexible(
+              child: Text(
+                busy
+                    ? 'Mencari lokasi…'
+                    : hasFix
                         ? 'Lokasi tersimpan · ketuk untuk perbarui'
                         : 'Gunakan lokasi saya sekarang',
-                  ),
+                overflow: TextOverflow.ellipsis,
+                style: display(
+                  size: 13,
+                  weight: FontWeight.w700,
+                  color: hasFix ? AppColors.greenDeep : AppColors.blue,
                 ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -426,7 +578,8 @@ class _AtmosphereCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.card),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
         width: double.infinity,
         constraints: const BoxConstraints(minHeight: kMinTouchTarget + 16),
         padding: const EdgeInsets.all(16),
@@ -435,29 +588,34 @@ class _AtmosphereCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.card),
           border: Border.all(
             color: selected ? AppColors.blue : AppColors.gray,
-            width: selected ? 2 : 1,
+            width: selected ? 2 : 1.5,
           ),
         ),
         child: Row(
           children: [
+            Text(
+              RegisteredIntentSummary.atmosphereEmoji(atmosphere),
+              style: const TextStyle(fontSize: 20),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     atmosphere.label,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color:
-                          selected ? AppColors.blue : AppColors.charcoal,
+                    style: display(
+                      size: 15,
+                      weight: FontWeight.w700,
+                      color: selected ? AppColors.blue : AppColors.charcoal,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     atmosphere.description,
-                    style: const TextStyle(
-                      fontSize: 13,
+                    style: display(
+                      size: 13,
+                      weight: FontWeight.w500,
                       color: AppColors.charcoalMid,
                     ),
                   ),
@@ -468,39 +626,6 @@ class _AtmosphereCard extends StatelessWidget {
               const Icon(Icons.check_circle, color: AppColors.blue, size: 22),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// The line that makes the assurance contract legible to the student.
-///
-/// Quiet by design but never omitted: the entire reason it is safe to register
-/// an intent is that nobody sees it, and a student who does not know that is
-/// still carrying the social risk the product removes.
-class _PrivacyReassurance extends StatelessWidget {
-  const _PrivacyReassurance();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.lavenderLight,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.lock_outline, size: 18, color: AppColors.charcoalMid),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Niatmu tidak terlihat oleh siapa pun sampai sesi terbentuk.',
-              style: TextStyle(fontSize: 14, color: AppColors.charcoalMid),
-            ),
-          ),
-        ],
       ),
     );
   }
