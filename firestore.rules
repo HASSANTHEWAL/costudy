@@ -13,8 +13,15 @@ rules_version = '2';
 // user see exactly that, reintroducing the social risk CoStudy removes.
 //
 // Cloud Functions use the Admin SDK, which bypasses rules entirely. That is
-// what lets the coalition engine scan every active intent (F.6) while no
-// client can read more than its own.
+// what lets the coalition engine scan every active intent (F.6), form
+// coalitions, and advance intent status — while no client can read more than
+// its own documents or promote its own intent.
+//
+// FIELD NAMING: Indonesian throughout, matching the proposal's terminology.
+// The coalition engine is deliberately NOT aware of this: it consumes a
+// neutral English shape, and functions/src/intentMapper.js translates at the
+// boundary. Keeping the algorithm free of domain vocabulary is what allows it
+// to stay a pure, separately testable module.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -33,7 +40,7 @@ service cloud.firestore {
     // email_verified is the load-bearing half. With email-link sign-in it is
     // set by Firebase only after the student opens the link, which is the
     // proof of mailbox ownership. Without it, anyone who could create an
-    // account with a guessed campus address could write intents.
+    // account with a guessed campus address could write.
     function isCampusVerified() {
       return isSignedIn()
         && request.auth.token.email_verified == true
@@ -41,43 +48,80 @@ service cloud.firestore {
         && request.auth.token.email.lower().matches('^[^@]+@students\\.uii\\.ac\\.id$');
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
     }
 
-    // Shape and range checks on an intent the client is trying to write.
+    // ── users ───────────────────────────────────────────────────────────────
+    // A student's own record. Holds the FCM token the scheduled matcher needs
+    // in order to notify every member of a coalition at the same moment.
     //
-    // hasOnly() matters as much as hasAll(): without it a client could attach
-    // arbitrary extra fields to its own document, and anything later reading
-    // those fields would be trusting client-controlled data.
-    function isValidIntent(data) {
-      return data.keys().hasAll([
-               'userId', 'startTime', 'endTime',
-               'lat', 'lng', 'radiusM', 'atmosphere', 'status', 'createdAt'
-             ])
-        && data.keys().hasOnly([
-             'userId', 'startTime', 'endTime',
-             'lat', 'lng', 'radiusM', 'atmosphere', 'status', 'createdAt'
-           ])
-        && data.userId is string
-        // Epoch milliseconds, matching the coalition engine's intent shape.
-        && data.startTime is int
-        && data.endTime is int
-        && data.endTime > data.startTime
-        && data.lat is number && data.lat >= -90 && data.lat <= 90
-        && data.lng is number && data.lng >= -180 && data.lng <= 180
-        && data.radiusM is int && data.radiusM > 0 && data.radiusM <= 5000
-        && data.atmosphere in ['quiet', 'discussion', 'any']
-        // A client may only ever open an intent. Advancing it to matched or
-        // completed is the engine's job, via the Admin SDK.
-        && data.status == 'active'
-        && data.createdAt is timestamp;
+    // Strictly owner-only, both read and write. There is no directory: a
+    // student cannot read another student's record even to discover that it
+    // exists, which is the same posture as intents and for the same reason.
+    match /users/{uid} {
+
+      function isValidUser(data) {
+        return data.keys().hasOnly([
+                 'emailKampus', 'jurusan', 'preferensiSuasana',
+                 'statusVerifikasi', 'fcmToken', 'diperbaruiPada'
+               ])
+          && (!data.keys().hasAny(['emailKampus']) || data.emailKampus is string)
+          && (!data.keys().hasAny(['jurusan']) || data.jurusan is string)
+          && (!data.keys().hasAny(['preferensiSuasana'])
+              || data.preferensiSuasana in ['hening', 'diskusi', 'bebas'])
+          && (!data.keys().hasAny(['statusVerifikasi'])
+              || data.statusVerifikasi is bool)
+          // Nullable: cleared on sign-out so a shared device does not keep
+          // delivering another student's session notifications.
+          && (!data.keys().hasAny(['fcmToken'])
+              || data.fcmToken == null || data.fcmToken is string);
+      }
+
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create, update: if isOwner(uid)
+                            && isCampusVerified()
+                            && isValidUser(request.resource.data);
+      allow delete: if false;
     }
 
+    // ── intents ─────────────────────────────────────────────────────────────
     match /intents/{intentId} {
 
+      // Shape and range checks on an intent the client is trying to write.
+      //
+      // hasOnly() matters as much as hasAll(): without it a client could
+      // attach arbitrary extra fields to its own document, and anything later
+      // reading those fields would be trusting client-controlled data.
+      function isValidIntent(data) {
+        return data.keys().hasAll([
+                 'idPengguna', 'waktuMulai', 'waktuSelesai',
+                 'lat', 'lng', 'radiusM', 'suasana', 'status', 'dibuatPada'
+               ])
+          && data.keys().hasOnly([
+               'idPengguna', 'waktuMulai', 'waktuSelesai',
+               'lat', 'lng', 'radiusM', 'suasana', 'status', 'dibuatPada'
+             ])
+          && data.idPengguna is string
+          // Epoch milliseconds — the unit the matcher's overlap arithmetic
+          // expects once the mapper has translated the field names.
+          && data.waktuMulai is int
+          && data.waktuSelesai is int
+          && data.waktuSelesai > data.waktuMulai
+          && data.lat is number && data.lat >= -90 && data.lat <= 90
+          && data.lng is number && data.lng >= -180 && data.lng <= 180
+          && data.radiusM is int && data.radiusM > 0 && data.radiusM <= 5000
+          && data.suasana in ['hening', 'diskusi', 'bebas']
+          // A client may only ever open an intent. Advancing it to
+          // 'tercocokkan' or 'kedaluwarsa' is the matcher's job, via the
+          // Admin SDK, which bypasses these rules.
+          && data.status == 'aktif'
+          && data.dibuatPada is timestamp;
+      }
+
       // Single-document read: only your own.
-      allow get: if isOwner(resource.data.userId);
+      allow get: if isOwner(resource.data.idPengguna);
 
       // Query/list: also only your own.
       //
@@ -85,33 +129,61 @@ service cloud.firestore {
       // returned documents — it must be able to prove from the query's own
       // filters that every possible result satisfies the rule. So an
       // unfiltered list of /intents is rejected outright, and only a query
-      // constrained with where('userId', isEqualTo: <own uid>) is allowed.
-      // A student cannot enumerate the collection even to count it.
-      allow list: if isOwner(resource.data.userId);
+      // constrained with where('idPengguna', isEqualTo: <own uid>) is
+      // allowed. A student cannot enumerate the collection even to count it.
+      allow list: if isOwner(resource.data.idPengguna);
 
       allow create: if isCampusVerified()
-                    && isOwner(request.resource.data.userId)
+                    && isOwner(request.resource.data.idPengguna)
                     && isValidIntent(request.resource.data);
 
-      // Cancelling is the only edit a client needs (proposal F.7 status
-      // 'cancelled'). Everything else about an intent is immutable once
-      // written — in particular the owner, so a document cannot be handed to
-      // another account, and the time and place, so an intent cannot be
-      // rewritten after the engine has already considered it.
+      // Cancelling is the only edit a client needs. Everything else about an
+      // intent is immutable once written — in particular the owner, so a
+      // document cannot be handed to another account, and the time and place,
+      // so an intent cannot be rewritten after the matcher has already
+      // considered it.
       allow update: if isCampusVerified()
-                    && isOwner(resource.data.userId)
-                    && request.resource.data.userId == resource.data.userId
-                    && request.resource.data.startTime == resource.data.startTime
-                    && request.resource.data.endTime == resource.data.endTime
+                    && isOwner(resource.data.idPengguna)
+                    && request.resource.data.idPengguna == resource.data.idPengguna
+                    && request.resource.data.waktuMulai == resource.data.waktuMulai
+                    && request.resource.data.waktuSelesai == resource.data.waktuSelesai
                     && request.resource.data.lat == resource.data.lat
                     && request.resource.data.lng == resource.data.lng
                     && request.resource.data.radiusM == resource.data.radiusM
-                    && request.resource.data.atmosphere == resource.data.atmosphere
-                    && request.resource.data.createdAt == resource.data.createdAt
-                    && resource.data.status == 'active'
-                    && request.resource.data.status == 'cancelled';
+                    && request.resource.data.suasana == resource.data.suasana
+                    && request.resource.data.dibuatPada == resource.data.dibuatPada
+                    && resource.data.status == 'aktif'
+                    && request.resource.data.status == 'dibatalkan';
 
-      allow delete: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.idPengguna);
+    }
+
+    // ── coalitionMembers ────────────────────────────────────────────────────
+    // Written only by the matcher. Document id is deterministic —
+    // "<idKoalisi>_<idPengguna>" — which is what lets the coalitions rule
+    // below prove membership with a single exists() lookup instead of a query.
+    match /coalitionMembers/{memberId} {
+      allow get: if isOwner(resource.data.idPengguna);
+      // Same query-proof requirement as intents: a student may list only
+      // their own memberships, so they cannot enumerate a coalition's roster.
+      allow list: if isOwner(resource.data.idPengguna);
+      // Attendance confirmation is FR-07, built in a later phase. Until then
+      // nothing client-side writes here.
+      allow write: if false;
+    }
+
+    // ── coalitions ──────────────────────────────────────────────────────────
+    // Readable only by a member, proven by the existence of that member's own
+    // coalitionMembers document. This is the one place a student sees data
+    // that is not solely their own — and only after the coalition has formed,
+    // which is exactly the moment the assurance contract says it becomes safe.
+    match /coalitions/{coalitionId} {
+      allow get: if isCampusVerified()
+                 && exists(/databases/$(database)/documents/coalitionMembers/$(coalitionId + '_' + request.auth.uid));
+      // No listing, ever. There is no screen that browses coalitions, and a
+      // query would let a student learn how many sessions exist.
+      allow list: if false;
+      allow write: if false;
     }
 
     // Everything else is closed.

@@ -106,19 +106,21 @@ void main() {
       final data = intent.toFirestore();
 
       // hasOnly() in the rules means an extra key is a rejected write, so the
-      // key set is part of the contract, not an implementation detail.
+      // key set is part of the contract, not an implementation detail. These
+      // are the Indonesian names firestore.rules enforces; the coalition
+      // engine's English shape is produced by intentMapper.js server-side.
       expect(
         data.keys.toSet(),
         {
-          'userId',
-          'startTime',
-          'endTime',
+          'idPengguna',
+          'waktuMulai',
+          'waktuSelesai',
           'lat',
           'lng',
           'radiusM',
-          'atmosphere',
+          'suasana',
           'status',
-          'createdAt',
+          'dibuatPada',
         },
       );
     });
@@ -136,9 +138,9 @@ void main() {
 
       final data = intent.toFirestore();
 
-      expect(data['startTime'], start.millisecondsSinceEpoch);
-      expect(data['startTime'], isA<int>());
-      expect(data['endTime'], isA<int>());
+      expect(data['waktuMulai'], start.millisecondsSinceEpoch);
+      expect(data['waktuMulai'], isA<int>());
+      expect(data['waktuSelesai'], isA<int>());
     });
 
     test('always opens an intent as active', () {
@@ -154,13 +156,39 @@ void main() {
         atmosphere: Atmosphere.discussion,
       ).toFirestore();
 
-      expect(data['status'], 'active');
+      expect(data['status'], 'aktif');
     });
 
-    test('atmosphere wire values match the engine and the rules', () {
-      expect(Atmosphere.quiet.wireValue, 'quiet');
-      expect(Atmosphere.discussion.wireValue, 'discussion');
-      expect(Atmosphere.any.wireValue, 'any');
+    test('suasana wire values match firestore.rules', () {
+      expect(Atmosphere.quiet.wireValue, 'hening');
+      expect(Atmosphere.discussion.wireValue, 'diskusi');
+      expect(Atmosphere.any.wireValue, 'bebas');
+    });
+
+    test('status wire values cover the full lifecycle in F.7', () {
+      expect(IntentStatus.active.wireValue, 'aktif');
+      expect(IntentStatus.matched.wireValue, 'tercocokkan');
+      expect(IntentStatus.expired.wireValue, 'kedaluwarsa');
+      expect(IntentStatus.cancelled.wireValue, 'dibatalkan');
+    });
+
+    test('an unknown status from the server does not throw', () {
+      // The matcher can advance an intent to a status this build has never
+      // seen. A StateError inside the Waiting screen's stream would take out
+      // the screen showing the student their own window.
+      final data = {
+        'idPengguna': 'uid-alice',
+        'waktuMulai': start.millisecondsSinceEpoch,
+        'waktuSelesai': start.add(const Duration(hours: 3)).millisecondsSinceEpoch,
+        'lat': -7.6875,
+        'lng': 110.4139,
+        'radiusM': 1000,
+        'suasana': 'hening',
+        'status': 'sesuatu-yang-baru',
+      };
+
+      expect(() => StudyIntent.fromFirestore(data), returnsNormally);
+      expect(StudyIntent.fromFirestore(data).status, IntentStatus.expired);
     });
 
     test('round-trips through Firestore form', () {

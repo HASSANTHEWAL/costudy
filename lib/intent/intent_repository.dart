@@ -15,11 +15,11 @@ class IntentFailure implements Exception {
 
 /// Firestore access for availability windows (FR-02, FR-03).
 ///
-/// Every query here filters on userId. That is not defensive style — it is
-/// required. firestore.rules allows `list` only when the query itself proves
-/// each result belongs to the caller, so an unfiltered read of /intents is
-/// rejected outright rather than returning a trimmed set. Dropping the filter
-/// does not leak data; it breaks the query.
+/// Every query here filters on `idPengguna`. That is not defensive style — it
+/// is required. firestore.rules allows `list` only when the query itself
+/// proves each result belongs to the caller, so an unfiltered read of /intents
+/// is rejected outright rather than returning a trimmed set. Dropping the
+/// filter does not leak data; it breaks the query.
 class IntentRepository {
   IntentRepository({FirebaseFirestore? firestore}) : _injected = firestore;
 
@@ -49,9 +49,9 @@ class IntentRepository {
   /// The caller's own active intents, newest first.
   Stream<List<StudyIntent>> watchMyActiveIntents(String userId) {
     return _intents
-        .where('userId', isEqualTo: userId)
+        .where('idPengguna', isEqualTo: userId)
         .where('status', isEqualTo: IntentStatus.active.wireValue)
-        .orderBy('startTime', descending: true)
+        .orderBy('waktuMulai', descending: true)
         .snapshots()
         .map((snapshot) =>
             snapshot.docs.map((d) => StudyIntent.fromFirestore(d.data())).toList());

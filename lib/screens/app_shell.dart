@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_service.dart';
+import '../notifications/push_service.dart';
 import '../theme/app_theme.dart';
 import 'history_screen.dart';
 import 'home_screen.dart';
@@ -14,17 +17,56 @@ import 'sessions_screen.dart';
 /// no people directory — the absence is the product decision (B.4): being able
 /// to browse and approach someone directly is exactly what CoStudy removes.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.user, required this.authService});
+  const AppShell({
+    super.key,
+    required this.user,
+    required this.authService,
+    this.pushService,
+  });
 
   final User user;
   final AuthService authService;
+
+  /// Injectable for tests; the app constructs the real one.
+  final PushService? pushService;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
+  /// Sesi. The tab a session-found notification lands on.
+  static const int _sesiTab = 1;
+
   int _index = 0;
+
+  late final PushService _push = widget.pushService ?? PushService();
+  StreamSubscription<String?>? _sessionFoundSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Permission is requested here rather than at launch: a prompt shown
+    // before the student knows what the app does gets denied, and on Android
+    // that denial sticks.
+    unawaited(_push.start(widget.user.uid));
+
+    _sessionFoundSubscription = _push.onSessionFound.listen((_) {
+      if (!mounted) return;
+      // A session formed while the app was open. Go straight to Sesi — the
+      // student is being told a fact, not asked to accept an invitation, so
+      // there is nothing to confirm first.
+      setState(() => _index = _sesiTab);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sessionFoundSubscription?.cancel();
+    unawaited(_push.stop(widget.user.uid));
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

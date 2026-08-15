@@ -9,14 +9,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// engine treats quiet and discussion as mutually exclusive rather than as
 /// preferences to be traded off.
 enum Atmosphere {
-  quiet('quiet', 'Hening', 'Fokus tanpa suara, dilarang bicara'),
-  discussion('discussion', 'Diskusi', 'Boleh bertanya dan berdiskusi pelan'),
-  any('any', 'Bebas', 'Tidak ada aturan suasana tertentu');
+  quiet('hening', 'Hening', 'Fokus tanpa suara, dilarang bicara'),
+  discussion('diskusi', 'Diskusi', 'Boleh bertanya dan berdiskusi pelan'),
+  any('bebas', 'Bebas', 'Tidak ada aturan suasana tertentu');
 
   const Atmosphere(this.wireValue, this.label, this.description);
 
-  /// Stored value. Must stay in step with the coalition engine's
-  /// 'quiet' | 'discussion' | 'any' and with firestore.rules.
+  /// Stored value, Indonesian, matching firestore.rules' `suasana` check.
+  ///
+  /// The coalition engine still speaks 'quiet' | 'discussion' | 'any' —
+  /// functions/src/intentMapper.js translates at the boundary so the
+  /// algorithm stays free of domain vocabulary. Change one, change the other.
   final String wireValue;
 
   final String label;
@@ -29,10 +32,10 @@ enum Atmosphere {
 /// that. Everything past it is the coalition engine's to set, through the
 /// Admin SDK.
 enum IntentStatus {
-  active('active'),
-  matched('matched'),
-  expired('expired'),
-  cancelled('cancelled');
+  active('aktif'),
+  matched('tercocokkan'),
+  expired('kedaluwarsa'),
+  cancelled('dibatalkan');
 
   const IntentStatus(this.wireValue);
 
@@ -83,31 +86,36 @@ class StudyIntent {
   /// mismatch into a loud failure.
   Map<String, Object?> toFirestore() {
     return {
-      'userId': userId,
-      'startTime': startTime.millisecondsSinceEpoch,
-      'endTime': endTime.millisecondsSinceEpoch,
+      'idPengguna': userId,
+      'waktuMulai': startTime.millisecondsSinceEpoch,
+      'waktuSelesai': endTime.millisecondsSinceEpoch,
       'lat': lat,
       'lng': lng,
       'radiusM': radiusM,
-      'atmosphere': atmosphere.wireValue,
+      'suasana': atmosphere.wireValue,
       'status': status.wireValue,
-      'createdAt': FieldValue.serverTimestamp(),
+      'dibuatPada': FieldValue.serverTimestamp(),
     };
   }
 
   static StudyIntent fromFirestore(Map<String, Object?> data) {
     return StudyIntent(
-      userId: data['userId']! as String,
+      userId: data['idPengguna']! as String,
       startTime:
-          DateTime.fromMillisecondsSinceEpoch(data['startTime']! as int),
-      endTime: DateTime.fromMillisecondsSinceEpoch(data['endTime']! as int),
+          DateTime.fromMillisecondsSinceEpoch(data['waktuMulai']! as int),
+      endTime: DateTime.fromMillisecondsSinceEpoch(data['waktuSelesai']! as int),
       lat: (data['lat']! as num).toDouble(),
       lng: (data['lng']! as num).toDouble(),
       radiusM: data['radiusM']! as int,
-      atmosphere: Atmosphere.values
-          .firstWhere((a) => a.wireValue == data['atmosphere']),
-      status: IntentStatus.values
-          .firstWhere((s) => s.wireValue == data['status']),
+      atmosphere:
+          Atmosphere.values.firstWhere((a) => a.wireValue == data['suasana']),
+      // Falls back rather than throwing: the matcher can advance an intent to
+      // a status this build has never seen, and a StateError deep inside a
+      // stream would take out the screen showing the student their own window.
+      status: IntentStatus.values.firstWhere(
+        (s) => s.wireValue == data['status'],
+        orElse: () => IntentStatus.expired,
+      ),
     );
   }
 }

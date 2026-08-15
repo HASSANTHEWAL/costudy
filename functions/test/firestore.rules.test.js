@@ -53,24 +53,26 @@ function student(email) {
 const ALICE_AUTH = student('alice@students.uii.ac.id');
 const BOB_AUTH = student('bob@students.uii.ac.id');
 
-/** Epoch ms — the coalition engine's time format. */
-const START = Date.UTC(2026, 7, 11, 18, 0);
-const END = Date.UTC(2026, 7, 11, 21, 0);
+/** Epoch ms — the unit the matcher's overlap arithmetic expects. */
+const MULAI = Date.UTC(2026, 7, 11, 18, 0);
+const SELESAI = Date.UTC(2026, 7, 11, 21, 0);
 
-function intentFor(userId, overrides = {}) {
+function intentFor(idPengguna, overrides = {}) {
   return {
-    userId,
-    startTime: START,
-    endTime: END,
+    idPengguna,
+    waktuMulai: MULAI,
+    waktuSelesai: SELESAI,
     lat: -7.6875,
     lng: 110.4139,
     radiusM: 1000,
-    atmosphere: 'quiet',
-    status: 'active',
-    createdAt: Timestamp.now(),
+    suasana: 'hening',
+    status: 'aktif',
+    dibuatPada: Timestamp.now(),
     ...overrides,
   };
 }
+
+const COALITION_ID = 'coalition-1';
 
 let testEnv;
 
@@ -93,13 +95,42 @@ afterAll(async () => {
 beforeEach(async () => {
   await testEnv.clearFirestore();
 
-  // Seed one intent owned by Alice, bypassing rules. This is the document
-  // Bob must not be able to reach by any route.
+  // Seed with rules disabled — this is the world the matcher's Admin SDK
+  // would have created. Alice is in a coalition; Bob is not.
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, 'intents/alice-intent'), intentFor(ALICE));
     await setDoc(doc(db, 'intents/alice-intent-2'), intentFor(ALICE));
     await setDoc(doc(db, 'intents/bob-intent'), intentFor(BOB));
+
+    await setDoc(doc(db, 'users/uid-alice'), {
+      emailKampus: 'alice@students.uii.ac.id',
+      statusVerifikasi: true,
+      fcmToken: 'token-alice',
+    });
+    await setDoc(doc(db, 'users/uid-bob'), {
+      emailKampus: 'bob@students.uii.ac.id',
+      statusVerifikasi: true,
+      fcmToken: 'token-bob',
+    });
+
+    await setDoc(doc(db, `coalitions/${COALITION_ID}`), {
+      waktuTerbentuk: Date.now(),
+      lokasiFinal: { lat: -7.6875, lng: 110.4139 },
+      waktuMulai: MULAI,
+      waktuSelesai: SELESAI,
+      ambangMinimum: 2,
+      jumlahAnggota: 2,
+      status: 'aktif',
+    });
+    // Deterministic id — the coalitions rule proves membership with exists()
+    // on exactly this path.
+    await setDoc(doc(db, `coalitionMembers/${COALITION_ID}_${ALICE}`), {
+      idKoalisi: COALITION_ID,
+      idPengguna: ALICE,
+      statusKonfirmasi: 'menunggu',
+      statusKehadiran: 'belum',
+    });
   });
 });
 
@@ -114,14 +145,14 @@ function bobDb() {
 // ── The requirement ─────────────────────────────────────────────────────────
 
 describe("FR-03: one student cannot reach another's intents", () => {
-  test('Bob CANNOT read Alice\'s intent document', async () => {
+  test("Bob CANNOT read Alice's intent document", async () => {
     await assertFails(getDoc(doc(bobDb(), 'intents/alice-intent')));
   });
 
-  test("Bob CANNOT list Alice's intents, even filtering by her userId", async () => {
+  test("Bob CANNOT list Alice's intents, even filtering by her id", async () => {
     const q = query(
       collection(bobDb(), 'intents'),
-      where('userId', '==', ALICE),
+      where('idPengguna', '==', ALICE),
     );
     await assertFails(getDocs(q));
   });
@@ -133,14 +164,12 @@ describe("FR-03: one student cannot reach another's intents", () => {
   });
 
   test('Bob CANNOT reach intents through a collection-group query', async () => {
-    // No `match /{path=**}/intents/{id}` rule exists, so there is no path
-    // variant that opens them up.
     await assertFails(getDocs(query(collectionGroup(bobDb(), 'intents'))));
   });
 
-  test('Bob CANNOT write to, or delete, Alice\'s intent', async () => {
+  test("Bob CANNOT write to, or delete, Alice's intent", async () => {
     await assertFails(
-      updateDoc(doc(bobDb(), 'intents/alice-intent'), { status: 'cancelled' }),
+      updateDoc(doc(bobDb(), 'intents/alice-intent'), { status: 'dibatalkan' }),
     );
     await assertFails(deleteDoc(doc(bobDb(), 'intents/alice-intent')));
   });
@@ -153,15 +182,13 @@ describe("FR-03: one student cannot reach another's intents", () => {
   test('Alice CAN list her own intents', async () => {
     const q = query(
       collection(aliceDb(), 'intents'),
-      where('userId', '==', ALICE),
+      where('idPengguna', '==', ALICE),
     );
     const snapshot = await assertSucceeds(getDocs(q));
     expect(snapshot.size).toBe(2);
   });
 
   test('Alice CANNOT list her own intents without the ownership filter', async () => {
-    // Same rule, seen from the owner's side: the filter is what makes the
-    // query provably safe, so omitting it fails even for your own data.
     await assertFails(getDocs(collection(aliceDb(), 'intents')));
   });
 });
@@ -169,38 +196,46 @@ describe("FR-03: one student cannot reach another's intents", () => {
 // ── Ownership on write ──────────────────────────────────────────────────────
 
 describe('FR-02: a student may only create intents for themselves', () => {
-  test('Alice CAN create an intent with her own userId', async () => {
+  test('Alice CAN create an intent with her own id', async () => {
     await assertSucceeds(
       setDoc(doc(aliceDb(), 'intents/new-alice'), intentFor(ALICE)),
     );
   });
 
-  test("Alice CANNOT create an intent carrying Bob's userId", async () => {
-    await assertFails(
-      setDoc(doc(aliceDb(), 'intents/forged'), intentFor(BOB)),
-    );
+  test("Alice CANNOT create an intent carrying Bob's id", async () => {
+    await assertFails(setDoc(doc(aliceDb(), 'intents/forged'), intentFor(BOB)));
   });
 
   test('Alice CAN cancel her own intent', async () => {
     await assertSucceeds(
       updateDoc(doc(aliceDb(), 'intents/alice-intent'), {
-        status: 'cancelled',
+        status: 'dibatalkan',
       }),
     );
   });
 
-  test('Alice CANNOT promote her own intent to matched', async () => {
-    // Only the coalition engine, via the Admin SDK, may advance status.
+  test('Alice CANNOT promote her own intent to tercocokkan', async () => {
+    // Only the matcher, via the Admin SDK, may advance status.
     await assertFails(
-      updateDoc(doc(aliceDb(), 'intents/alice-intent'), { status: 'matched' }),
+      updateDoc(doc(aliceDb(), 'intents/alice-intent'), {
+        status: 'tercocokkan',
+      }),
+    );
+  });
+
+  test('Alice CANNOT expire her own intent', async () => {
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'intents/alice-intent'), {
+        status: 'kedaluwarsa',
+      }),
     );
   });
 
   test('Alice CANNOT rewrite the time or place of an existing intent', async () => {
     await assertFails(
       updateDoc(doc(aliceDb(), 'intents/alice-intent'), {
-        status: 'cancelled',
-        startTime: START + 3600000,
+        status: 'dibatalkan',
+        waktuMulai: MULAI + 3600000,
       }),
     );
   });
@@ -272,25 +307,36 @@ describe('intent documents are validated on write', () => {
     await assertFails(
       setDoc(
         doc(aliceDb(), 'intents/backwards'),
-        intentFor(ALICE, { endTime: START }),
+        intentFor(ALICE, { waktuSelesai: MULAI }),
       ),
     );
   });
 
-  test('rejects an unknown atmosphere', async () => {
+  test('rejects an unknown suasana', async () => {
     await assertFails(
       setDoc(
-        doc(aliceDb(), 'intents/bad-atmosphere'),
-        intentFor(ALICE, { atmosphere: 'karaoke' }),
+        doc(aliceDb(), 'intents/bad-suasana'),
+        intentFor(ALICE, { suasana: 'karaoke' }),
       ),
     );
   });
 
-  test('rejects a status other than active on create', async () => {
+  test('rejects an English suasana left over from the old schema', async () => {
+    // Guards the migration specifically: a stale client writing 'quiet'
+    // should fail loudly rather than store a value the mapper cannot read.
+    await assertFails(
+      setDoc(
+        doc(aliceDb(), 'intents/english'),
+        intentFor(ALICE, { suasana: 'quiet' }),
+      ),
+    );
+  });
+
+  test('rejects a status other than aktif on create', async () => {
     await assertFails(
       setDoc(
         doc(aliceDb(), 'intents/prematched'),
-        intentFor(ALICE, { status: 'matched' }),
+        intentFor(ALICE, { status: 'tercocokkan' }),
       ),
     );
   });
@@ -314,8 +360,6 @@ describe('intent documents are validated on write', () => {
   });
 
   test('rejects smuggled extra fields', async () => {
-    // hasOnly() — otherwise a client could attach anything it liked to its
-    // own document and later code might trust it.
     await assertFails(
       setDoc(
         doc(aliceDb(), 'intents/extra'),
@@ -326,10 +370,174 @@ describe('intent documents are validated on write', () => {
 
   test('rejects a missing required field', async () => {
     const incomplete = intentFor(ALICE);
-    delete incomplete.atmosphere;
+    delete incomplete.suasana;
+
+    await assertFails(setDoc(doc(aliceDb(), 'intents/incomplete'), incomplete));
+  });
+});
+
+// ── users ───────────────────────────────────────────────────────────────────
+
+describe('users: the FCM token record is strictly the owner\'s', () => {
+  test('Alice CAN read and write her own record', async () => {
+    await assertSucceeds(getDoc(doc(aliceDb(), 'users/uid-alice')));
+    await assertSucceeds(
+      setDoc(
+        doc(aliceDb(), 'users/uid-alice'),
+        { fcmToken: 'new-token', statusVerifikasi: true },
+        { merge: true },
+      ),
+    );
+  });
+
+  test("Bob CANNOT read Alice's record", async () => {
+    // Her FCM token is there, and so is the fact that she uses the app at all.
+    await assertFails(getDoc(doc(bobDb(), 'users/uid-alice')));
+  });
+
+  test("Bob CANNOT overwrite Alice's FCM token", async () => {
+    // Otherwise he could redirect her session notifications to his device.
+    await assertFails(
+      setDoc(
+        doc(bobDb(), 'users/uid-alice'),
+        { fcmToken: 'bob-device' },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('nobody can list the users collection', async () => {
+    // There is no directory. Enumerating students is exactly the browsing
+    // affordance the product removes.
+    await assertFails(getDocs(collection(aliceDb(), 'users')));
+  });
+
+  test('an unverified account CANNOT write its own record', async () => {
+    const db = testEnv
+      .authenticatedContext('uid-unverified', {
+        email: 'nada@students.uii.ac.id',
+        email_verified: false,
+      })
+      .firestore();
 
     await assertFails(
-      setDoc(doc(aliceDb(), 'intents/incomplete'), incomplete),
+      setDoc(doc(db, 'users/uid-unverified'), { fcmToken: 'x' }),
+    );
+  });
+
+  test('clearing the token on sign-out is allowed', async () => {
+    await assertSucceeds(
+      setDoc(
+        doc(aliceDb(), 'users/uid-alice'),
+        { fcmToken: null },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('rejects an unknown preferensiSuasana', async () => {
+    await assertFails(
+      setDoc(
+        doc(aliceDb(), 'users/uid-alice'),
+        { preferensiSuasana: 'karaoke' },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('rejects smuggled extra fields', async () => {
+    await assertFails(
+      setDoc(
+        doc(aliceDb(), 'users/uid-alice'),
+        { peran: 'admin' },
+        { merge: true },
+      ),
+    );
+  });
+});
+
+// ── coalitions and membership ───────────────────────────────────────────────
+
+describe('coalitions are readable only by their members', () => {
+  test('Alice, a member, CAN read her coalition', async () => {
+    await assertSucceeds(getDoc(doc(aliceDb(), `coalitions/${COALITION_ID}`)));
+  });
+
+  test('Bob, not a member, CANNOT read it', async () => {
+    await assertFails(getDoc(doc(bobDb(), `coalitions/${COALITION_ID}`)));
+  });
+
+  test('nobody can list coalitions', async () => {
+    // No screen browses sessions, and a query would reveal how many exist.
+    await assertFails(getDocs(collection(aliceDb(), 'coalitions')));
+  });
+
+  test('no client can write a coalition', async () => {
+    // Only the matcher, via the Admin SDK. A client-written coalition would
+    // be a session nobody agreed to.
+    await assertFails(
+      setDoc(doc(aliceDb(), 'coalitions/forged'), {
+        waktuTerbentuk: Date.now(),
+        lokasiFinal: { lat: 0, lng: 0 },
+        waktuMulai: MULAI,
+        waktuSelesai: SELESAI,
+        ambangMinimum: 2,
+        jumlahAnggota: 2,
+        status: 'aktif',
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(aliceDb(), `coalitions/${COALITION_ID}`), {
+        status: 'gagal',
+      }),
+    );
+  });
+
+  test('Alice CAN read her own membership record', async () => {
+    await assertSucceeds(
+      getDoc(doc(aliceDb(), `coalitionMembers/${COALITION_ID}_${ALICE}`)),
+    );
+  });
+
+  test("Bob CANNOT read Alice's membership record", async () => {
+    await assertFails(
+      getDoc(doc(bobDb(), `coalitionMembers/${COALITION_ID}_${ALICE}`)),
+    );
+  });
+
+  test('Bob CANNOT enumerate a coalition roster', async () => {
+    // Filtering by coalition rather than by himself: the rule requires the
+    // query to prove every result is his, so this is refused.
+    await assertFails(
+      getDocs(
+        query(
+          collection(bobDb(), 'coalitionMembers'),
+          where('idKoalisi', '==', COALITION_ID),
+        ),
+      ),
+    );
+  });
+
+  test('Alice CAN list her own memberships', async () => {
+    const snapshot = await assertSucceeds(
+      getDocs(
+        query(
+          collection(aliceDb(), 'coalitionMembers'),
+          where('idPengguna', '==', ALICE),
+        ),
+      ),
+    );
+    expect(snapshot.size).toBe(1);
+  });
+
+  test('no client can write a membership record', async () => {
+    await assertFails(
+      setDoc(doc(aliceDb(), `coalitionMembers/${COALITION_ID}_${BOB}`), {
+        idKoalisi: COALITION_ID,
+        idPengguna: BOB,
+        statusKonfirmasi: 'menunggu',
+        statusKehadiran: 'belum',
+      }),
     );
   });
 });
@@ -340,9 +548,8 @@ describe('no other collection is open', () => {
   test('a student cannot read or write arbitrary collections', async () => {
     const db = aliceDb();
 
-    await assertFails(getDoc(doc(db, 'users/uid-alice')));
-    await assertFails(setDoc(doc(db, 'users/uid-alice'), { name: 'Alice' }));
-    await assertFails(getDocs(collection(db, 'coalitions')));
-    await assertFails(setDoc(doc(db, 'coalitions/x'), { size: 2 }));
+    await assertFails(getDoc(doc(db, 'admin/config')));
+    await assertFails(setDoc(doc(db, 'admin/config'), { x: 1 }));
+    await assertFails(getDocs(collection(db, 'sessions')));
   });
 });
