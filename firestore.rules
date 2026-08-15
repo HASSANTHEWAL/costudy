@@ -63,10 +63,15 @@ service cloud.firestore {
 
       function isValidUser(data) {
         return data.keys().hasOnly([
-                 'emailKampus', 'jurusan', 'preferensiSuasana',
+                 'emailKampus', 'nama', 'jurusan', 'preferensiSuasana',
                  'statusVerifikasi', 'fcmToken', 'diperbaruiPada'
                ])
           && (!data.keys().hasAny(['emailKampus']) || data.emailKampus is string)
+          // Never shown to another student — session detail displays jurusan
+          // only. Length-capped so it cannot become a free-text field
+          // carrying more than a name.
+          && (!data.keys().hasAny(['nama'])
+              || (data.nama is string && data.nama.size() <= 80))
           && (!data.keys().hasAny(['jurusan']) || data.jurusan is string)
           && (!data.keys().hasAny(['preferensiSuasana'])
               || data.preferensiSuasana in ['hening', 'diskusi', 'bebas'])
@@ -167,9 +172,27 @@ service cloud.firestore {
       // Same query-proof requirement as intents: a student may list only
       // their own memberships, so they cannot enumerate a coalition's roster.
       allow list: if isOwner(resource.data.idPengguna);
-      // Attendance confirmation is FR-07, built in a later phase. Until then
-      // nothing client-side writes here.
-      allow write: if false;
+
+      // FR-07 — a student confirms their OWN attendance, and nothing else.
+      //
+      // Every other field is pinned to its current value. In particular:
+      //   - idKoalisi / idPengguna, so a member record cannot be moved to
+      //     another coalition or handed to another account (which would also
+      //     defeat the deterministic-id membership proof used by /coalitions)
+      //   - statusKehadiran, which records whether they actually turned up.
+      //     That is the system's judgement, not a self-report, and letting a
+      //     client set it would make the completion metric meaningless.
+      allow update: if isCampusVerified()
+                    && isOwner(resource.data.idPengguna)
+                    && request.resource.data.idKoalisi == resource.data.idKoalisi
+                    && request.resource.data.idPengguna == resource.data.idPengguna
+                    && request.resource.data.statusKehadiran == resource.data.statusKehadiran
+                    && request.resource.data.statusKonfirmasi in ['menunggu', 'hadir'];
+
+      // Membership is created by the matcher alone. A client-created member
+      // document would be a student inserting themselves into someone else's
+      // session.
+      allow create, delete: if false;
     }
 
     // ── coalitions ──────────────────────────────────────────────────────────

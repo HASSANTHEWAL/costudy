@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_service.dart';
+import '../profile/student_profile.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -16,19 +17,19 @@ class ProfileScreen extends StatelessWidget {
     super.key,
     required this.user,
     required this.authService,
+    required this.profile,
   });
 
   final User user;
   final AuthService authService;
 
+  /// Filled at Profile Setup, which the auth gate runs before this screen can
+  /// ever be reached — so these are real values, not guesses from the address.
+  final StudentProfile profile;
+
   String get _displayName {
-    final local = (user.email ?? '').split('@').first;
-    if (local.isEmpty) return 'Mahasiswa';
-    return local
-        .split(RegExp(r'[.\-_]+'))
-        .where((p) => p.isNotEmpty)
-        .map((p) => p[0].toUpperCase() + p.substring(1))
-        .join(' ');
+    final nama = (profile.nama ?? '').trim();
+    return nama.isEmpty ? 'Mahasiswa' : nama;
   }
 
   @override
@@ -51,7 +52,8 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 20),
             _IdentityCard(
               name: _displayName,
-              email: user.email ?? '—',
+              email: profile.emailKampus ?? user.email ?? '—',
+              jurusan: profile.jurusan,
               verified: user.emailVerified,
             ),
             const SizedBox(height: 12),
@@ -90,11 +92,13 @@ class _IdentityCard extends StatelessWidget {
   const _IdentityCard({
     required this.name,
     required this.email,
+    required this.jurusan,
     required this.verified,
   });
 
   final String name;
   final String email;
+  final String? jurusan;
   final bool verified;
 
   @override
@@ -133,12 +137,8 @@ class _IdentityCard extends StatelessWidget {
                   style: mono(size: 11),
                 ),
                 const SizedBox(height: 3),
-                // Jurusan has no source yet: Profile Setup (screen 4 of the
-                // design) is not built, so nothing has ever asked for it.
-                // Showing a placeholder is honest; inventing a faculty would
-                // put fiction on a screen judges will read.
                 Text(
-                  'Jurusan belum diatur · UII',
+                  '${jurusan ?? 'Jurusan belum diatur'} · UII',
                   style: display(
                     size: 13,
                     weight: FontWeight.w500,

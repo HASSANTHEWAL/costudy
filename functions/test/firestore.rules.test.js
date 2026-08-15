@@ -435,6 +435,26 @@ describe('users: the FCM token record is strictly the owner\'s', () => {
     );
   });
 
+  test('Profile Setup can write nama and jurusan', async () => {
+    await assertSucceeds(
+      setDoc(
+        doc(aliceDb(), 'users/uid-alice'),
+        { nama: 'Alice Rahmawati', jurusan: 'Teknik Informatika' },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('rejects an over-long nama', async () => {
+    await assertFails(
+      setDoc(
+        doc(aliceDb(), 'users/uid-alice'),
+        { nama: 'x'.repeat(81) },
+        { merge: true },
+      ),
+    );
+  });
+
   test('rejects an unknown preferensiSuasana', async () => {
     await assertFails(
       setDoc(
@@ -530,7 +550,7 @@ describe('coalitions are readable only by their members', () => {
     expect(snapshot.size).toBe(1);
   });
 
-  test('no client can write a membership record', async () => {
+  test('no client can create a membership record', async () => {
     await assertFails(
       setDoc(doc(aliceDb(), `coalitionMembers/${COALITION_ID}_${BOB}`), {
         idKoalisi: COALITION_ID,
@@ -538,6 +558,72 @@ describe('coalitions are readable only by their members', () => {
         statusKonfirmasi: 'menunggu',
         statusKehadiran: 'belum',
       }),
+    );
+  });
+});
+
+// ── FR-07: attendance confirmation ──────────────────────────────────────────
+
+describe('a student confirms their own attendance, and nothing else', () => {
+  const aliceMember = `coalitionMembers/${COALITION_ID}_${ALICE}`;
+
+  test('Alice CAN mark herself hadir', async () => {
+    await assertSucceeds(
+      updateDoc(doc(aliceDb(), aliceMember), { statusKonfirmasi: 'hadir' }),
+    );
+  });
+
+  test("Bob CANNOT confirm on Alice's behalf", async () => {
+    await assertFails(
+      updateDoc(doc(bobDb(), aliceMember), { statusKonfirmasi: 'hadir' }),
+    );
+  });
+
+  test('Alice CANNOT set an arbitrary statusKonfirmasi', async () => {
+    await assertFails(
+      updateDoc(doc(aliceDb(), aliceMember), { statusKonfirmasi: 'juara' }),
+    );
+  });
+
+  test('Alice CANNOT self-report statusKehadiran', async () => {
+    // Whether she actually turned up is the system's judgement, not a
+    // self-report — otherwise the completion metric measures nothing.
+    await assertFails(
+      updateDoc(doc(aliceDb(), aliceMember), {
+        statusKonfirmasi: 'hadir',
+        statusKehadiran: 'hadir',
+      }),
+    );
+  });
+
+  test('Alice CANNOT move her membership to another coalition', async () => {
+    await assertFails(
+      updateDoc(doc(aliceDb(), aliceMember), {
+        statusKonfirmasi: 'hadir',
+        idKoalisi: 'coalition-somewhere-else',
+      }),
+    );
+  });
+
+  test('Alice CANNOT reassign her membership to Bob', async () => {
+    await assertFails(
+      updateDoc(doc(aliceDb(), aliceMember), {
+        statusKonfirmasi: 'hadir',
+        idPengguna: BOB,
+      }),
+    );
+  });
+
+  test('an unverified account CANNOT confirm', async () => {
+    const db = testEnv
+      .authenticatedContext(ALICE, {
+        email: 'alice@students.uii.ac.id',
+        email_verified: false,
+      })
+      .firestore();
+
+    await assertFails(
+      updateDoc(doc(db, aliceMember), { statusKonfirmasi: 'hadir' }),
     );
   });
 });

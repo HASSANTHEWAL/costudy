@@ -138,8 +138,8 @@ describe('a coalition forms', () => {
         'intent-b': intent({ idPengguna: 'uid-b' }),
       },
       users: {
-        'uid-a': { fcmToken: 'token-a' },
-        'uid-b': { fcmToken: 'token-b' },
+        'uid-a': { fcmToken: 'token-a', jurusan: 'Teknik Informatika' },
+        'uid-b': { fcmToken: 'token-b', jurusan: 'Hukum' },
       },
     });
     messaging = createFakeMessaging();
@@ -194,6 +194,16 @@ describe('a coalition forms', () => {
       expect(member.data.idKoalisi).toBe(coalitionId);
       expect(member.data.statusKonfirmasi).toBe('menunggu');
     }
+  });
+
+  test('member faculties are denormalised onto the coalition', () => {
+    // The session card shows "2 mahasiswa · Teknik, Hukum". Assembling that
+    // client-side would need a roster listing plus reads of other students'
+    // profiles, both of which firestore.rules refuses — so it is resolved
+    // here, and the client never has a path to the people behind the labels.
+    const doc = db.writes.sets.find((s) => s.collection === 'coalitions').data;
+
+    expect(doc.jurusanAnggota).toEqual(['Teknik', 'Hukum']);
   });
 
   test('every member is notified in a single simultaneous multicast', () => {
@@ -340,6 +350,48 @@ describe('members without an FCM token', () => {
       db.writes.sets.filter((s) => s.collection === 'coalitions'),
     ).toHaveLength(1);
     expect(messaging.calls).toHaveLength(0);
+  });
+});
+
+describe('faculty labels', () => {
+  test('a member with no jurusan contributes nothing rather than a blank', async () => {
+    const db = createFakeDb({
+      intents: {
+        'intent-a': intent({ idPengguna: 'uid-a' }),
+        'intent-b': intent({ idPengguna: 'uid-b' }),
+      },
+      users: {
+        'uid-a': { fcmToken: 'token-a', jurusan: 'Hukum' },
+        // Profile Setup never completed for uid-b.
+        'uid-b': { fcmToken: 'token-b' },
+      },
+    });
+
+    await matchAndNotify(db, createFakeMessaging(), { now: at(19) });
+
+    const doc = db.writes.sets.find((s) => s.collection === 'coalitions').data;
+    // "2 mahasiswa · Hukum" is honest; "Hukum, ???" is noise.
+    expect(doc.jurusanAnggota).toEqual(['Hukum']);
+    expect(doc.jumlahAnggota).toBe(2);
+  });
+
+  test('duplicate faculties collapse, so the roster cannot be counted off', async () => {
+    const db = createFakeDb({
+      intents: {
+        'intent-a': intent({ idPengguna: 'uid-a' }),
+        'intent-b': intent({ idPengguna: 'uid-b' }),
+      },
+      users: {
+        'uid-a': { fcmToken: 'token-a', jurusan: 'Teknik Informatika' },
+        'uid-b': { fcmToken: 'token-b', jurusan: 'Teknik Industri' },
+      },
+    });
+
+    await matchAndNotify(db, createFakeMessaging(), { now: at(19) });
+
+    const doc = db.writes.sets.find((s) => s.collection === 'coalitions').data;
+    // Both shorten to 'Teknik'; the list must not reveal that there are two.
+    expect(doc.jurusanAnggota).toEqual(['Teknik']);
   });
 });
 

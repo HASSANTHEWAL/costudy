@@ -14,6 +14,7 @@
 
 const { beforeUserCreated, beforeUserSignedIn, HttpsError } = require('firebase-functions/v2/identity');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const { logger } = require('firebase-functions');
 const { initializeApp } = require('firebase-admin/app');
@@ -26,6 +27,7 @@ const {
   CampusAuthError,
 } = require('./src/authBlocking');
 const { matchAndNotify } = require('./src/matchAndNotify');
+const { completeCoalitionIfReady } = require('./src/completeCoalition');
 
 initializeApp();
 
@@ -98,5 +100,32 @@ exports.runCoalitionMatcher = onSchedule(
   async () => {
     const summary = await matchAndNotify(getFirestore(), getMessaging());
     logger.info('coalition matcher run complete', summary);
+  },
+);
+
+/**
+ * FR-08 — a session completes once enough members have confirmed.
+ *
+ * Triggered on member writes rather than polled: confirmation is a rare,
+ * user-driven event, and the coalition should read as finished the moment the
+ * threshold is crossed rather than up to five minutes later.
+ *
+ * Firestore triggers are at-least-once, so completeCoalitionIfReady() is
+ * written to be idempotent — it refuses to act on a coalition that is not
+ * 'aktif', which makes a duplicate delivery a no-op instead of a second write.
+ */
+exports.completeCoalitionOnConfirm = onDocumentWritten(
+  'coalitionMembers/{memberId}',
+  async (event) => {
+    const after = event.data?.after?.data();
+    const before = event.data?.before?.data();
+    const idKoalisi = after?.idKoalisi ?? before?.idKoalisi;
+
+    // Deletions and unrelated field edits carry no new confirmation.
+    if (!idKoalisi) return;
+    if (after?.statusKonfirmasi === before?.statusKonfirmasi) return;
+
+    const result = await completeCoalitionIfReady(getFirestore(), idKoalisi);
+    logger.info('coalition completion check', { idKoalisi, ...result });
   },
 );

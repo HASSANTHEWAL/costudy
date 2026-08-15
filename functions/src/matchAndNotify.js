@@ -129,6 +129,7 @@ async function writeCoalition(db, coalition, engineIntents) {
   const members = coalition.intentIds.map((id) => byId.get(id));
 
   const location = centroidOf(members);
+  const faculties = await facultiesOf(db, members.map((m) => m.userId));
   const coalitionRef = db.collection('coalitions').doc();
   const batch = db.batch();
 
@@ -139,6 +140,17 @@ async function writeCoalition(db, coalition, engineIntents) {
     waktuSelesai: coalition.endTime,
     ambangMinimum: MIN_THRESHOLD,
     jumlahAnggota: coalition.size,
+    // Denormalised deliberately, and it is a privacy decision rather than a
+    // performance one.
+    //
+    // The session card shows "2 mahasiswa · Teknik, Hukum". Assembling that
+    // client-side would require a student to list the coalition's roster and
+    // read other students' user documents — both of which firestore.rules
+    // refuses, and rightly: a roster is a list of people, which is the thing
+    // this product does not let anyone browse. Resolving the labels here, with
+    // the Admin SDK, means the client is handed faculties and never has a path
+    // to the members behind them.
+    jurusanAnggota: faculties,
     // 'aktif' rather than 'menunggu': by the time this document exists the
     // coalition is a fact the members are about to be told about, not a
     // proposal awaiting anyone's approval. Nobody invited anybody.
@@ -173,6 +185,39 @@ async function writeCoalition(db, coalition, engineIntents) {
     size: coalition.size,
     tokens: [],
   };
+}
+
+/**
+ * Faculty labels for a coalition's members, de-duplicated and order-stable.
+ *
+ * Labels only — never names, and never aligned with the member list, so the
+ * result cannot be used to work out who is who. "Teknik Informatika" is
+ * shortened to "Teknik" to match how the card renders several side by side.
+ *
+ * A member whose profile is unreadable or has no jurusan contributes nothing
+ * rather than a placeholder: a card reading "2 mahasiswa · Teknik" is honest,
+ * one reading "Teknik, ???" is noise.
+ */
+async function facultiesOf(db, userIds) {
+  const labels = [];
+
+  for (const userId of userIds) {
+    let snapshot;
+    try {
+      snapshot = await db.collection('users').doc(userId).get();
+    } catch (error) {
+      continue;
+    }
+    if (!snapshot || !snapshot.exists) continue;
+
+    const jurusan = snapshot.data()?.jurusan;
+    if (typeof jurusan !== 'string' || jurusan.trim().length === 0) continue;
+
+    const label = jurusan.startsWith('Teknik ') ? 'Teknik' : jurusan.trim();
+    if (!labels.includes(label)) labels.push(label);
+  }
+
+  return labels;
 }
 
 /**

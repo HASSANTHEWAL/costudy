@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_service.dart';
 import '../notifications/push_service.dart';
+import '../profile/student_profile.dart';
 import '../theme/app_theme.dart';
 import 'history_screen.dart';
 import 'home_screen.dart';
@@ -21,11 +22,13 @@ class AppShell extends StatefulWidget {
     super.key,
     required this.user,
     required this.authService,
+    required this.profile,
     this.pushService,
   });
 
   final User user;
   final AuthService authService;
+  final StudentProfile profile;
 
   /// Injectable for tests; the app constructs the real one.
   final PushService? pushService;
@@ -71,10 +74,14 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final tabs = [
-      HomeScreen(user: widget.user, onSeeSessions: () => _select(1)),
-      const SessionsScreen(),
-      const HistoryScreen(),
-      ProfileScreen(user: widget.user, authService: widget.authService),
+      HomeScreen(user: widget.user, onSeeSessions: () => _select(_sesiTab)),
+      SessionsScreen(userId: widget.user.uid),
+      HistoryScreen(userId: widget.user.uid),
+      ProfileScreen(
+        user: widget.user,
+        authService: widget.authService,
+        profile: widget.profile,
+      ),
     ];
 
     return Scaffold(

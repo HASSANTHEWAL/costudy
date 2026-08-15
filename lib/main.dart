@@ -6,8 +6,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'auth/auth_service.dart';
+import 'profile/student_profile.dart';
 import 'screens/app_shell.dart';
 import 'screens/email_entry_screen.dart';
+import 'screens/profile_setup_screen.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -127,7 +129,69 @@ class AuthGate extends StatelessWidget {
         if (user == null) {
           return EmailEntryScreen(authService: authService);
         }
-        return AppShell(user: user, authService: authService);
+        return _ProfileGate(user: user, authService: authService);
+      },
+    );
+  }
+}
+
+/// Runs Profile Setup once, before the shell.
+///
+/// A gate rather than a pushed route: the setup screen is not something the
+/// student can back out of, and making it a *state* of the tree rather than a
+/// route on top of the shell means there is no shell underneath to return to.
+///
+/// Keyed on `jurusan` because that is what another member's session card
+/// renders. A student with no faculty would show up as a blank in someone
+/// else's session.
+class _ProfileGate extends StatefulWidget {
+  const _ProfileGate({required this.user, required this.authService});
+
+  final User user;
+  final AuthService authService;
+
+  @override
+  State<_ProfileGate> createState() => _ProfileGateState();
+}
+
+class _ProfileGateState extends State<_ProfileGate> {
+  final _repository = ProfileRepository();
+  late Future<StudentProfile> _profile = _repository.load(widget.user.uid);
+
+  void _reload() {
+    setState(() => _profile = _repository.load(widget.user.uid));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<StudentProfile>(
+      future: _profile,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(color: AppColors.blue),
+            ),
+          );
+        }
+
+        // On a read failure, fall through to setup rather than the shell. The
+        // cost of asking twice is a mild annoyance; the cost of skipping it is
+        // a member who appears as a blank to everyone else in their session.
+        final profile = snapshot.data;
+        if (profile == null || profile.needsSetup) {
+          return ProfileSetupScreen(
+            uid: widget.user.uid,
+            emailKampus: widget.user.email,
+            onCompleted: _reload,
+          );
+        }
+
+        return AppShell(
+          user: widget.user,
+          authService: widget.authService,
+          profile: profile,
+        );
       },
     );
   }
