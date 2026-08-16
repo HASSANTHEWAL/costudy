@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// CoStudy design tokens, ported from the Figma prototype
 /// (CoStudy Phase 1 Design). Values are the exact constants from the
@@ -55,13 +54,20 @@ abstract final class AppRadius {
 /// Minimum touch target, per the design brief and WCAG.
 const double kMinTouchTarget = 48.0;
 
+/// Bundled font families, declared in pubspec.yaml.
+const String kDisplayFamily = 'PlusJakartaSans';
+const String kMonoFamily = 'DMMono';
+
 /// Display face. Plus Jakarta Sans across the interface.
 ///
-/// Served through google_fonts, which fetches once and caches to disk. That
-/// is a deliberate tradeoff: no font binaries in the repo, but the very first
-/// launch on a device with no network falls back to the platform face. For an
-/// offline demo the fonts should be bundled as assets instead — see the note
-/// in the commit message.
+/// Loaded from a bundled asset, not fetched. A first launch with no network
+/// must render correctly — the alternative is the app looking wrong precisely
+/// when it is being demonstrated on bad wifi.
+///
+/// Plus Jakarta Sans ships as a single variable file, so the weight is chosen
+/// on the `wght` axis. `fontWeight` is set as well: it is what Flutter uses
+/// for fallback metrics and for synthetic bolding if the axis is ever
+/// unavailable, and leaving it out makes every weight render as Regular.
 TextStyle display({
   required double size,
   FontWeight weight = FontWeight.w600,
@@ -69,9 +75,11 @@ TextStyle display({
   double? height,
   double? letterSpacing,
 }) {
-  return GoogleFonts.plusJakartaSans(
+  return TextStyle(
+    fontFamily: kDisplayFamily,
     fontSize: size,
     fontWeight: weight,
+    fontVariations: [FontVariation('wght', weight.value.toDouble())],
     color: color,
     height: height,
     letterSpacing: letterSpacing,
@@ -80,13 +88,17 @@ TextStyle display({
 
 /// Mono face. DM Mono, reserved for times, counts, and session codes — never
 /// for body copy. Keeps digits from jittering as they change.
+///
+/// Static faces rather than variable: DM Mono has no variable build, so
+/// Regular and Medium are bundled and selected by weight.
 TextStyle mono({
   required double size,
   FontWeight weight = FontWeight.w400,
   Color color = AppColors.grayMid,
   double? letterSpacing,
 }) {
-  return GoogleFonts.dmMono(
+  return TextStyle(
+    fontFamily: kMonoFamily,
     fontSize: size,
     fontWeight: weight,
     color: color,
@@ -106,7 +118,9 @@ ThemeData buildCoStudyTheme() {
     colorScheme: colorScheme,
     scaffoldBackgroundColor: AppColors.offWhite,
     useMaterial3: true,
-    textTheme: GoogleFonts.plusJakartaSansTextTheme().apply(
+    fontFamily: kDisplayFamily,
+    textTheme: Typography.blackMountainView.apply(
+      fontFamily: kDisplayFamily,
       bodyColor: AppColors.charcoalMid,
       displayColor: AppColors.charcoal,
     ),
@@ -128,28 +142,21 @@ ThemeData buildCoStudyTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
-        textStyle: GoogleFonts.plusJakartaSans(
-          fontSize: 16,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.2,
-        ),
+        textStyle: display(size: 16, weight: FontWeight.w800, letterSpacing: -0.2),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: AppColors.blue,
         minimumSize: const Size(0, kMinTouchTarget),
-        textStyle: GoogleFonts.plusJakartaSans(
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-        ),
+        textStyle: display(size: 14, weight: FontWeight.w700),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: AppColors.charcoal,
-      contentTextStyle: GoogleFonts.plusJakartaSans(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
+      contentTextStyle: display(
+        size: 14,
+        weight: FontWeight.w600,
         color: AppColors.white,
       ),
       behavior: SnackBarBehavior.floating,
@@ -161,8 +168,9 @@ ThemeData buildCoStudyTheme() {
       filled: true,
       fillColor: AppColors.white,
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-      hintStyle: GoogleFonts.plusJakartaSans(
-        fontSize: 15,
+      hintStyle: display(
+        size: 15,
+        weight: FontWeight.w500,
         color: AppColors.grayMid,
       ),
       border: _inputBorder(AppColors.gray),
@@ -170,8 +178,9 @@ ThemeData buildCoStudyTheme() {
       focusedBorder: _inputBorder(AppColors.blue, width: 2),
       errorBorder: _inputBorder(AppColors.red, width: 2),
       focusedErrorBorder: _inputBorder(AppColors.red, width: 2),
-      errorStyle: GoogleFonts.plusJakartaSans(
-        fontSize: 13,
+      errorStyle: display(
+        size: 13,
+        weight: FontWeight.w500,
         color: AppColors.red,
       ),
     ),
