@@ -11,13 +11,15 @@
     "test": "jest",
     "test:rules": "firebase emulators:exec --config ../firebase.json --project demo-costudy-rules --only firestore \"jest --config jest.rules.config.js\"",
     "bench": "node bench/coalitionEngine.bench.js",
-    "serve": "firebase emulators:start --config ../firebase.json --only functions,auth,firestore"
+    "serve": "firebase emulators:start --config ../firebase.json --only functions,auth,firestore",
+    "test:e2e": "firebase emulators:exec --config ../firebase.json --project demo-costudy-e2e --only firestore \"jest --config jest.e2e.config.js\""
   },
   "jest": {
     "//": "The rules suite needs a running Firestore emulator, so `npm test` skips it. Run it with `npm run test:rules`, which starts the emulator around it.",
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "<rootDir>/test/firestore.rules.test.js"
+      "<rootDir>/test/firestore.rules.test.js",
+      "<rootDir>/test/e2e/"
     ]
   },
   "devDependencies": {
