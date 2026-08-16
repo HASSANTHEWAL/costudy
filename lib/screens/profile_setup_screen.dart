@@ -75,9 +75,16 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         emailKampus: widget.emailKampus,
       );
       widget.onCompleted?.call();
-    } catch (_) {
+    } on ProfileFailure catch (failure) {
+      // Named cause, not a guess. Reporting a permissions problem as a
+      // connection problem is what made this bug hard to place.
+      debugPrint('CoStudy: profile setup failed (${failure.code})');
       if (!mounted) return;
-      setState(() => _error = 'Belum tersimpan. Periksa koneksimu lalu coba lagi.');
+      setState(() => _error = failure.message);
+    } catch (error) {
+      debugPrint('CoStudy: profile setup failed: $error');
+      if (!mounted) return;
+      setState(() => _error = 'Belum tersimpan. Coba lagi sebentar lagi.');
     } finally {
       if (mounted) setState(() => _saving = false);
     }

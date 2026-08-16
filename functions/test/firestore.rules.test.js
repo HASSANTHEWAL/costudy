@@ -435,6 +435,60 @@ describe('users: the FCM token record is strictly the owner\'s', () => {
     );
   });
 
+  test('Profile Setup can CREATE a user document that does not exist yet', async () => {
+    // The path every real student takes: after email-link sign-in there is no
+    // users/{uid} document at all, and Profile Setup is the first write.
+    // Every other test in this group seeds the doc first and therefore only
+    // ever exercised update — this one covers create.
+    const freshUid = 'uid-newcomer';
+    const db = testEnv
+      .authenticatedContext(freshUid, student('newcomer@students.uii.ac.id'))
+      .firestore();
+
+    // Precondition: the document genuinely does not exist, so the write below
+    // is a create rather than an update.
+    const before = await assertSucceeds(getDoc(doc(db, `users/${freshUid}`)));
+    expect(before.exists()).toBe(false);
+
+    await assertSucceeds(
+      setDoc(
+        doc(db, `users/${freshUid}`),
+        {
+          // Exactly what ProfileRepository.saveSetup sends.
+          nama: 'Newcomer Mahasiswa',
+          jurusan: 'Teknik Informatika',
+          statusVerifikasi: true,
+          emailKampus: 'newcomer@students.uii.ac.id',
+        },
+        { merge: true },
+      ),
+    );
+  });
+
+  test('an UNVERIFIED account is refused on create, not just on update', async () => {
+    // The likeliest real cause of a failing first write: isCampusVerified()
+    // requires email_verified, which is false until the student actually
+    // opens their sign-in link.
+    const db = testEnv
+      .authenticatedContext('uid-pending', {
+        email: 'pending@students.uii.ac.id',
+        email_verified: false,
+      })
+      .firestore();
+
+    await assertFails(
+      setDoc(
+        doc(db, 'users/uid-pending'),
+        {
+          nama: 'Pending Mahasiswa',
+          jurusan: 'Hukum',
+          statusVerifikasi: true,
+        },
+        { merge: true },
+      ),
+    );
+  });
+
   test('Profile Setup can write nama and jurusan', async () => {
     await assertSucceeds(
       setDoc(

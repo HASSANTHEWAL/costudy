@@ -24,6 +24,11 @@ class _FakePlaceResolver implements PlaceNameResolver {
 
 /// Records what Profile Setup writes, without Firestore.
 class _FakeProfileRepository implements ProfileRepository {
+  _FakeProfileRepository({this.failure});
+
+  /// When set, saveSetup throws it instead of recording a save.
+  final ProfileFailure? failure;
+
   final List<Map<String, Object?>> saves = [];
 
   @override
@@ -33,6 +38,7 @@ class _FakeProfileRepository implements ProfileRepository {
     required String jurusan,
     String? emailKampus,
   }) async {
+    if (failure != null) throw failure!;
     saves.add({
       'uid': uid,
       'nama': nama,
@@ -172,6 +178,39 @@ void main() {
         'emailKampus': 'alice@students.uii.ac.id',
       });
       expect(completed, isTrue);
+    });
+
+    testWidgets('names the real cause instead of blaming the network',
+        (tester) async {
+      // The bug this guards: a permission-denied was reported as "periksa
+      // koneksimu", sending students to fix their wifi when the actual
+      // problem was an unverified account.
+      await pump(
+        tester,
+        ProfileSetupScreen(
+          uid: 'uid-alice',
+          emailKampus: 'alice@students.uii.ac.id',
+          repository: _FakeProfileRepository(
+            failure: const ProfileFailure(
+              'Akunmu belum terverifikasi. Buka tautan masuk dari emailmu, '
+              'lalu coba lagi.',
+              code: 'permission-denied',
+            ),
+          ),
+        ),
+      );
+
+      await tester.enterText(find.byType(TextFormField), 'Alice Rahmawati');
+      await tester.pump();
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hukum').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(FilledButton));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('belum terverifikasi'), findsOneWidget);
+      expect(find.textContaining('koneksi'), findsNothing);
     });
 
     testWidgets('cannot be dismissed', (tester) async {
