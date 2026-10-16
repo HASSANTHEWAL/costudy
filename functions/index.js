@@ -13,13 +13,23 @@
  */
 
 const { beforeUserCreated, beforeUserSignedIn, HttpsError } = require('firebase-functions/v2/identity');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
+const { logger } = require('firebase-functions');
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { getMessaging } = require('firebase-admin/messaging');
 
 const {
   handleBeforeUserCreated,
   handleBeforeUserSignedIn,
   CampusAuthError,
 } = require('./src/authBlocking');
+const { matchAndNotify } = require('./src/matchAndNotify');
+const { completeCoalitionIfReady } = require('./src/completeCoalition');
+
+initializeApp();
 
 /**
  * Jakarta. The pilot population is entirely in Yogyakarta, and blocking
@@ -62,4 +72,60 @@ exports.enforceCampusDomainOnCreate = beforeUserCreated(
 /** FR-01, NFR-03 — re-checked on every sign-in; issues the campusVerified claim. */
 exports.enforceCampusDomainOnSignIn = beforeUserSignedIn(
   toBlockingHandler(handleBeforeUserSignedIn),
+);
+
+/**
+ * FR-04/05/06 — the matching run.
+ *
+ * Every five minutes rather than on intent creation. Matching is inherently a
+ * batch problem: a coalition is a property of the whole set of open intents,
+ * and running on each write would repeatedly evaluate an incomplete set and
+ * form small coalitions that a moment's patience would have made larger. The
+ * interval is also what gives an unmatched intent repeated chances across the
+ * life of its window instead of one.
+ *
+ * All logic lives in src/matchAndNotify.js so it can be tested without
+ * deploying; this wrapper only supplies the SDK handles and logs the outcome.
+ */
+exports.runCoalitionMatcher = onSchedule(
+  {
+    schedule: 'every 5 minutes',
+    // Matching reasons about wall-clock windows students entered locally.
+    timeZone: 'Asia/Jakarta',
+    // One run at a time. Two overlapping passes could read the same 'aktif'
+    // intents and form two coalitions from the same students.
+    maxInstances: 1,
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const summary = await matchAndNotify(getFirestore(), getMessaging());
+    logger.info('coalition matcher run complete', summary);
+  },
+);
+
+/**
+ * FR-08 — a session completes once enough members have confirmed.
+ *
+ * Triggered on member writes rather than polled: confirmation is a rare,
+ * user-driven event, and the coalition should read as finished the moment the
+ * threshold is crossed rather than up to five minutes later.
+ *
+ * Firestore triggers are at-least-once, so completeCoalitionIfReady() is
+ * written to be idempotent — it refuses to act on a coalition that is not
+ * 'aktif', which makes a duplicate delivery a no-op instead of a second write.
+ */
+exports.completeCoalitionOnConfirm = onDocumentWritten(
+  'coalitionMembers/{memberId}',
+  async (event) => {
+    const after = event.data?.after?.data();
+    const before = event.data?.before?.data();
+    const idKoalisi = after?.idKoalisi ?? before?.idKoalisi;
+
+    // Deletions and unrelated field edits carry no new confirmation.
+    if (!idKoalisi) return;
+    if (after?.statusKonfirmasi === before?.statusKonfirmasi) return;
+
+    const result = await completeCoalitionIfReady(getFirestore(), idKoalisi);
+    logger.info('coalition completion check', { idKoalisi, ...result });
+  },
 );

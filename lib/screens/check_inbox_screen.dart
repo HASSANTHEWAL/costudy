@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common.dart';
 
-/// Screen 3 of the design — "check your inbox".
+/// Screen 3 — Cek emailmu.
 ///
 /// The student leaves the app here and comes back through the email link, so
 /// this screen's only jobs are to confirm where the link went and to offer a
@@ -92,78 +93,94 @@ class _CheckInboxScreenState extends State<CheckInboxScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
     final canResend = _secondsLeft == 0 && !_resending;
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: AppColors.charcoal,
-      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _InboxGlyph(),
+              ScreenHeader(
+                title: 'Cek emailmu',
+                subtitle: 'Tautan masuk sudah dikirim',
+                onBack: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 32),
+              Center(
+                child: Container(
+                  width: 104,
+                  height: 104,
+                  decoration: BoxDecoration(
+                    color: AppColors.blueLight,
+                    borderRadius: BorderRadius.circular(32),
+                  ),
+                  child: const Icon(
+                    Icons.mark_email_unread_outlined,
+                    size: 46,
+                    color: AppColors.blue,
+                  ),
+                ),
+              ),
               const SizedBox(height: 28),
-              Text('Cek emailmu', style: textTheme.headlineMedium),
-              const SizedBox(height: 12),
-              Text('Kami mengirim tautan masuk ke', style: textTheme.bodyLarge),
+              Text(
+                'Kami mengirim tautan masuk ke',
+                style: display(
+                  size: 14,
+                  weight: FontWeight.w500,
+                  color: AppColors.grayMid,
+                ),
+              ),
               const SizedBox(height: 6),
               Text(
                 widget.email,
-                style: textTheme.bodyLarge?.copyWith(
+                // Mono for the address: it is the one string on this screen
+                // the student needs to read character by character to confirm
+                // they did not mistype it.
+                style: mono(
+                  size: 15,
+                  weight: FontWeight.w500,
                   color: AppColors.charcoal,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 22),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.blueLight,
-                  borderRadius: BorderRadius.circular(AppRadius.card),
+                  borderRadius: BorderRadius.circular(AppRadius.cardLarge),
                 ),
                 child: Text(
-                  'Buka tautan itu di perangkat ini supaya kamu langsung masuk '
-                  'ke CoStudy.',
-                  style: textTheme.bodyMedium?.copyWith(
+                  'Buka tautan itu di perangkat ini supaya kamu langsung '
+                  'masuk ke CoStudy.',
+                  style: display(
+                    size: 13,
+                    weight: FontWeight.w500,
                     color: AppColors.charcoalMid,
+                    height: 1.5,
                   ),
                 ),
               ),
               if (_notice != null) ...[
                 const SizedBox(height: 16),
-                Text(
-                  _notice!,
-                  style: textTheme.bodyMedium?.copyWith(color: AppColors.green),
-                ),
+                _Note(text: _notice!, color: AppColors.greenDeep),
               ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
-                Text(
-                  _error!,
-                  style: textTheme.bodyMedium?.copyWith(color: AppColors.red),
-                ),
+                _Note(text: _error!, color: AppColors.red),
               ],
-              const SizedBox(height: 28),
-              TextButton(
-                onPressed: canResend ? _resend : null,
-                child: Text(
-                  canResend
-                      ? 'Kirim ulang'
-                      // Monospace so the digits do not jitter as they count
-                      // down — the design reserves DM Mono for times and
-                      // counts exactly like this one.
-                      : 'Kirim ulang dalam $_countdown',
-                  style: canResend
-                      ? null
-                      : const TextStyle(
-                          fontFeatures: [FontFeature.tabularFigures()],
-                          color: AppColors.grayMid,
+              const SizedBox(height: 26),
+              Center(
+                child: TextButton(
+                  onPressed: canResend ? _resend : null,
+                  child: canResend
+                      ? const Text('Kirim ulang')
+                      : Text(
+                          'Kirim ulang dalam $_countdown',
+                          // Mono so the digits do not jitter as they count
+                          // down.
+                          style: mono(size: 14, weight: FontWeight.w500),
                         ),
                 ),
               ),
@@ -175,25 +192,22 @@ class _CheckInboxScreenState extends State<CheckInboxScreen> {
   }
 }
 
-/// A quiet placeholder where the mascot belongs.
-///
-/// The design puts the two-blob mascot on this screen. Drawing it properly is
-/// its own change; an obviously simple shape is better than a rough imitation
-/// that later has to be un-learned.
-class _InboxGlyph extends StatelessWidget {
-  const _InboxGlyph();
+class _Note extends StatelessWidget {
+  const _Note({required this.text, required this.color});
+
+  final String text;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 96,
-      width: 96,
-      decoration: const BoxDecoration(
-        color: AppColors.blueLight,
-        shape: BoxShape.circle,
+    return Text(
+      text,
+      style: display(
+        size: 13,
+        weight: FontWeight.w600,
+        color: color,
+        height: 1.4,
       ),
-      child: const Icon(Icons.mark_email_unread_outlined,
-          size: 44, color: AppColors.blue),
     );
   }
 }

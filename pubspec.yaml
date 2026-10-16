@@ -38,6 +38,12 @@ dependencies:
   firebase_auth: ^6.5.7
   shared_preferences: ^2.5.5
   app_links: ^7.2.1
+  cloud_firestore: ^6.8.0
+  geolocator: ^14.0.3
+  flutter_svg: ^2.3.0
+  firebase_messaging: ^16.5.0
+  geocoding: ^5.0.0
+  intl: ^0.20.3
 
 dev_dependencies:
   flutter_test:
@@ -60,6 +66,28 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Bundled rather than fetched at runtime.
+  #
+  # google_fonts downloads on first use and caches to disk, which means a
+  # first launch with no network silently falls back to the platform face —
+  # the app looks wrong exactly when it is being demonstrated somewhere with
+  # bad wifi. 296KB of assets is a cheap trade for the type never being wrong.
+  #
+  # Plus Jakarta Sans is the variable original (one file, weight axis
+  # 200-800); AppTheme selects a weight with FontVariation. DM Mono ships as
+  # static faces because it has no variable build. Both OFL, licences beside
+  # the files.
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-VariableFont_wght.ttf
+    - family: DMMono
+      fonts:
+        - asset: assets/fonts/DMMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/DMMono-Medium.ttf
+          weight: 500
 
   # To add assets to your application, add an assets section, like this:
   # assets:

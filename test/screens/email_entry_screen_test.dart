@@ -12,6 +12,13 @@ import 'package:flutter_test/flutter_test.dart';
 /// would send a link belongs in an integration test against the emulator.
 void main() {
   Future<void> pumpScreen(WidgetTester tester) async {
+    // The default 800x600 test surface is wider and shorter than any phone,
+    // and the branded header pushes the submit button past 600px. Use the
+    // design's own canvas size so the layout under test is the real one.
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(
       MaterialApp(
         theme: buildCoStudyTheme(),
@@ -20,10 +27,17 @@ void main() {
     );
   }
 
+  Future<void> tapSubmit(WidgetTester tester) async {
+    final button = find.widgetWithText(FilledButton, 'Kirim tautan verifikasi');
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pump();
+  }
+
   Future<void> submit(WidgetTester tester, String email) async {
     await tester.enterText(find.byType(TextField), email);
-    await tester.tap(find.text('Kirim tautan verifikasi'));
-    await tester.pump();
+    await tapSubmit(tester);
   }
 
   testWidgets('shows the near-miss message for a UII staff address',
@@ -55,8 +69,7 @@ void main() {
 
   testWidgets('rejects an empty submission', (tester) async {
     await pumpScreen(tester);
-    await tester.tap(find.text('Kirim tautan verifikasi'));
-    await tester.pump();
+    await tapSubmit(tester);
 
     expect(find.text('Alamat email belum diisi.'), findsOneWidget);
   });
