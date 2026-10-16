@@ -214,8 +214,8 @@ first-initiative risk the whole system exists to remove.
 
 ## Licence
 
-Not yet chosen. The project plan commits to releasing this openly so a later
-cohort can continue it — a licence will be added before submission.
+[MIT](LICENSE) — chosen so a later cohort can pick this up and continue it,
+which the project plan commits to.
 
 Bundled fonts (Plus Jakarta Sans, DM Mono) are SIL Open Font License; their
 licences are in [`assets/fonts/`](assets/fonts/).
