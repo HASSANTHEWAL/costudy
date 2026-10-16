@@ -24,6 +24,26 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Firebase Authentication email sign-in links (FR-01).
+
+                 Since Dynamic Links shut down on 25 August 2025, Firebase
+                 serves these from the project's Firebase Hosting default
+                 domain under /__/auth/links. autoVerify makes this an Android
+                 App Link, so tapping the link in a mail client opens the app
+                 directly instead of a browser. Firebase publishes the
+                 matching assetlinks.json on that domain automatically.
+
+                 The host is injected from google-services.json by
+                 app/build.gradle.kts — do not hardcode it. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="https"
+                    android:host="${firebaseAuthHost}"
+                    android:pathPrefix="/__/auth/links"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
